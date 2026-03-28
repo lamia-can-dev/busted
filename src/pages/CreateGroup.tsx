@@ -1,6 +1,7 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
+import { getSession } from '../lib/session'
 
 function generateInviteCode(): string {
   return Math.random().toString(36).slice(2, 8).toUpperCase()
@@ -10,6 +11,11 @@ type Mode = 'create' | 'join'
 
 export default function CreateGroup() {
   const navigate = useNavigate()
+
+  useEffect(() => {
+    if (getSession()) navigate('/game')
+  }, [])
+
   const [mode, setMode] = useState<Mode>('create')
   const [name, setName] = useState('')
   const [inviteCode, setInviteCode] = useState('')

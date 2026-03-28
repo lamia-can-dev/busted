@@ -1,6 +1,6 @@
 // Supabase Edge Function — generate-grids
 // POST { group_id: string }
-// Génère une grille pour chaque membre du groupe (service role, bypass RLS)
+// Génère une grille 4×4 pour chaque membre du groupe en piochant dans le pool de paris partagé
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 
@@ -8,48 +8,19 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 // Types
 // ─────────────────────────────────────────────────────────────
 
-interface OnboardingAnswers {
-  weekendActivity: string[]
-  badHabit: string
-  partyStyle: string[]
-}
-
 interface UserRow {
   id: string
   group_id: string
   username: string
   avatar_url: string | null
-  onboarding_answers: OnboardingAnswers | null
+  onboarding_answers: unknown
   created_at: string
 }
 
-// ─────────────────────────────────────────────────────────────
-// Templates (dupliqués depuis src/lib/generateGrid.ts)
-// ─────────────────────────────────────────────────────────────
-
-const WEEKEND_TEMPLATES: Record<string, string> = {
-  'Netflix':        '{{u}} va regarder une série en entier ce week-end',
-  'Sortir':         '{{u}} va rentrer après 3h du matin ce week-end',
-  'Sport':          '{{u}} va poster sa séance de sport sur les réseaux',
-  'Cuisine':        '{{u}} va rater une recette et commander à la place',
-  'Flemme totale':  '{{u}} va passer le week-end en pyjama sans culpabiliser',
+interface ProposalRow {
+  target_user_id: string
+  content: string
 }
-
-const PARTY_TEMPLATES: Record<string, string> = {
-  'Le premier parti':       '{{u}} va partir avant 23h',
-  'Le dernier debout':      '{{u}} va être le dernier à partir',
-  'Celui qui mange tout':   '{{u}} va finir les chips de tout le monde',
-  'Le photographe':         '{{u}} va faire 50 photos dont personne ne voudra',
-}
-
-const UNIVERSAL_POOL: string[] = [
-  '{{u}} va commander à manger plutôt que cuisiner',
-  '{{u}} va annuler des plans au dernier moment',
-  '{{u}} va poster une story ce week-end',
-  '{{u}} va répondre « ça dépend » à une question simple',
-  '{{u}} va être en retard à un rendez-vous',
-  '{{u}} va checker son téléphone toutes les 5 minutes',
-]
 
 // ─────────────────────────────────────────────────────────────
 // Helpers
@@ -64,55 +35,10 @@ function shuffle<T>(arr: T[]): T[] {
   return a
 }
 
-function pick<T>(arr: T[]): T {
-  return arr[Math.floor(Math.random() * arr.length)]
-}
-
 function currentWeekStart(): string {
   const d = new Date()
   d.setDate(d.getDate() - ((d.getDay() + 6) % 7))
   return d.toISOString().slice(0, 10)
-}
-
-function distributeTargets(members: UserRow[]): string[] {
-  const n = members.length
-  const base = Math.floor(9 / n)
-  const remainder = 9 % n
-  const slots: string[] = []
-  members.forEach((m, i) => {
-    const count = base + (i < remainder ? 1 : 0)
-    for (let j = 0; j < count; j++) slots.push(m.id)
-  })
-  return shuffle(slots)
-}
-
-function personalizedTemplates(answers: OnboardingAnswers): string[] {
-  const templates: string[] = []
-  for (const a of answers.weekendActivity ?? []) {
-    if (WEEKEND_TEMPLATES[a]) templates.push(WEEKEND_TEMPLATES[a])
-  }
-  for (const s of answers.partyStyle ?? []) {
-    if (PARTY_TEMPLATES[s]) templates.push(PARTY_TEMPLATES[s])
-  }
-  if (answers.badHabit?.trim()) {
-    templates.push(`{{u}} va ${answers.badHabit.trim().toLowerCase()} cette semaine`)
-  }
-  return templates
-}
-
-function generateCellContent(
-  username: string,
-  answers: OnboardingAnswers,
-  usedContents: Set<string>
-): string {
-  const perso = personalizedTemplates(answers)
-  for (let attempt = 0; attempt < 20; attempt++) {
-    const template =
-      perso.length > 0 && Math.random() < 0.6 ? pick(perso) : pick(UNIVERSAL_POOL)
-    const content = template.replace(/\{\{u\}\}/g, username)
-    if (!usedContents.has(content)) return content
-  }
-  return pick(UNIVERSAL_POOL).replace(/\{\{u\}\}/g, username)
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -150,33 +76,63 @@ Deno.serve(async (req: Request) => {
       return Response.json({ error: 'Pas assez de membres (minimum 2)' }, { status: 422 })
     }
 
+    // Récupérer tous les paris du pool partagé
+    const { data: allProposals, error: proposalsError } = await admin
+      .from('proposals')
+      .select('target_user_id, content')
+      .eq('group_id', group_id)
+      .eq('is_approved', true)
+
+    if (proposalsError) throw new Error(proposalsError.message)
+    if (!allProposals || allProposals.length === 0) {
+      return Response.json({ error: 'Aucun pari approuvé — votez sur les paris avant de générer les grilles' }, { status: 422 })
+    }
+
     const weekStart = currentWeekStart()
-    const memberMap = new Map<string, UserRow>(allMembers.map((m: UserRow) => [m.id, m]))
+
+    // Récupérer les membres qui ont déjà une grille cette semaine
+    const { data: existingGrids } = await admin
+      .from('grids')
+      .select('owner_user_id')
+      .eq('group_id', group_id)
+      .eq('week_start', weekStart)
+
+    const alreadyHasGrid = new Set((existingGrids ?? []).map((g: { owner_user_id: string }) => g.owner_user_id))
+    const membersToGenerate = (allMembers as UserRow[]).filter((m) => !alreadyHasGrid.has(m.id))
+
+    if (membersToGenerate.length === 0) {
+      return Response.json({ message: 'Tous les membres ont déjà une grille cette semaine', generated: 0 })
+    }
 
     const gridsToInsert: object[] = []
     const cellsByOwner: Map<string, object[]> = new Map()
 
-    // Générer grilles et cases pour chaque membre
-    for (const owner of allMembers as UserRow[]) {
-      const others = allMembers.filter((m: UserRow) => m.id !== owner.id) as UserRow[]
-      const targetIds = distributeTargets(others)
-      const usedContents = new Set<string>()
-
-      const cells = targetIds.map((targetId) => {
-        const target = memberMap.get(targetId)!
-        const answers = (target.onboarding_answers ?? {}) as OnboardingAnswers
-        const content = generateCellContent(target.username, answers, usedContents)
-        usedContents.add(content)
-        return { target_user_id: targetId, content, is_auto_generated: true }
-      })
-
+    // Générer les cases pour chaque membre sans grille
+    for (const owner of membersToGenerate) {
+      const eligible = (allProposals as ProposalRow[]).filter(
+        (p) => p.target_user_id !== owner.id
+      )
+      if (eligible.length < 9) {
+        return Response.json(
+          { error: `Pas assez de paris pour ${owner.username} (${eligible.length}/9 disponibles)` },
+          { status: 422 }
+        )
+      }
+      const picked = shuffle(eligible).slice(0, 9)
       gridsToInsert.push({
         owner_user_id: owner.id,
         group_id,
         week_start: weekStart,
         is_revealed: false,
       })
-      cellsByOwner.set(owner.id, cells)
+      cellsByOwner.set(
+        owner.id,
+        picked.map((p) => ({
+          target_user_id: p.target_user_id,
+          content: p.content,
+          is_auto_generated: false,
+        }))
+      )
     }
 
     // Insérer toutes les grilles

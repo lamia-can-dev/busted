@@ -16,6 +16,7 @@ interface Submitter {
 interface CellInfo {
   id: string
   content: string | null
+  target: { id: string; username: string } | null
 }
 
 interface SubmissionWithDetails {
@@ -42,8 +43,6 @@ function timeAgo(iso: string): string {
   return `il y a ${Math.floor(h / 24)}j`
 }
 
-const LAST_SEEN_KEY = 'busted_feed_seen'
-
 // ─── Main component ───────────────────────────────────────────
 
 export default function Feed() {
@@ -51,7 +50,6 @@ export default function Feed() {
   const session = getSession()
 
   const [submissions, setSubmissions] = useState<SubmissionWithDetails[]>([])
-  const [memberCount, setMemberCount] = useState(2)
   const [loading, setLoading] = useState(true)
   const [lightboxUrl, setLightboxUrl] = useState<string | null>(null)
   const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null)
@@ -59,7 +57,6 @@ export default function Feed() {
   useEffect(() => {
     if (!session) { navigate('/'); return }
     loadFeed()
-    localStorage.setItem(LAST_SEEN_KEY, new Date().toISOString())
 
     return () => {
       channelRef.current?.unsubscribe()
@@ -70,24 +67,17 @@ export default function Feed() {
     if (!session) return
     setLoading(true)
 
-    // Nombre de membres du groupe
-    const { count } = await supabase
-      .from('users')
-      .select('id', { count: 'exact', head: true })
-      .eq('group_id', session.groupId)
-    setMemberCount(count ?? 2)
-
-    // Submissions avec joins
     const { data, error } = await supabase
       .from('submissions')
       .select(`
         *,
-        cell:cells(id, content),
+        cell:cells(id, content, target:users!target_user_id(id, username)),
         submitter:users!submitter_user_id(id, username, avatar_url),
         votes(*)
       `)
       .order('created_at', { ascending: false })
 
+    console.log('[Feed] data:', JSON.stringify(data?.[0], null, 2), 'error:', error)
     if (!error && data) {
       setSubmissions(data as unknown as SubmissionWithDetails[])
     }
@@ -108,7 +98,7 @@ export default function Feed() {
             .from('submissions')
             .select(`
               *,
-              cell:cells(id, content),
+              cell:cells(id, content, target:users!target_user_id(id, username)),
               submitter:users!submitter_user_id(id, username, avatar_url),
               votes(*)
             `)
@@ -125,6 +115,7 @@ export default function Feed() {
         { event: 'INSERT', schema: 'public', table: 'votes' },
         (payload) => {
           const newVote = payload.new as Vote
+          if (newVote.voter_user_id === session?.userId) return
           setSubmissions((prev) =>
             prev.map((s) =>
               s.id === newVote.submission_id
@@ -154,11 +145,12 @@ export default function Feed() {
       )
     )
 
-    await supabase.from('votes').insert({
+    const { error } = await supabase.from('votes').insert({
       submission_id: submissionId,
       voter_user_id: session.userId,
       is_valid: isValid,
     })
+    if (error) console.error('[Vote] insert error:', error)
   }
 
   if (!session) return null
@@ -189,7 +181,6 @@ export default function Feed() {
             >
               <SubmissionCard
                 submission={s}
-                memberCount={memberCount}
                 userId={session.userId}
                 onVote={castVote}
                 onImageClick={setLightboxUrl}
@@ -221,32 +212,28 @@ export default function Feed() {
 
 function SubmissionCard({
   submission,
-  memberCount,
   userId,
   onVote,
   onImageClick,
 }: {
   submission: SubmissionWithDetails
-  memberCount: number
   userId: string
   onVote: (id: string, valid: boolean) => void
   onImageClick: (url: string) => void
 }) {
-  const validVotes = submission.votes.filter((v) => v.is_valid).length
-  const invalidVotes = submission.votes.filter((v) => !v.is_valid).length
-  const threshold = Math.ceil(memberCount / 2)
-  const isValidated = validVotes >= threshold
-  const myVote = submission.votes.find((v) => v.voter_user_id === userId)
+  const targetUserId = submission.cell?.target?.id ?? null
+  const targetVote = submission.votes.find((v) => v.voter_user_id === targetUserId)
+  const isValidated = targetVote?.is_valid === true
+  const isContested = targetVote?.is_valid === false
+  const isTarget = userId === targetUserId
   const isOwn = submission.submitter_user_id === userId
-  const canVote = !isOwn && !myVote
-
-  const progress = Math.min((validVotes / threshold) * 100, 100)
+  const hasVoted = !!targetVote
 
   return (
     <motion.div
       animate={{
-        borderColor: isValidated ? '#22c55e' : '#2a2a2a',
-        backgroundColor: isValidated ? '#0d2018' : '#1a1a1a',
+        borderColor: isValidated ? '#22c55e' : isContested ? '#ef4444' : '#2a2a2a',
+        backgroundColor: isValidated ? '#0d2018' : isContested ? '#2a1010' : '#1a1a1a',
       }}
       transition={{ duration: 0.5 }}
       style={styles.card}
@@ -267,12 +254,13 @@ function SubmissionCard({
           </div>
         </div>
         {isValidated && (
-          <motion.span
-            initial={{ scale: 0 }}
-            animate={{ scale: 1 }}
-            style={styles.validatedBadge}
-          >
+          <motion.span initial={{ scale: 0 }} animate={{ scale: 1 }} style={styles.validatedBadge}>
             Validé ✓
+          </motion.span>
+        )}
+        {isContested && (
+          <motion.span initial={{ scale: 0 }} animate={{ scale: 1 }} style={styles.contestedBadge}>
+            Contesté ✗
           </motion.span>
         )}
       </div>
@@ -280,7 +268,9 @@ function SubmissionCard({
       {/* Contenu de la case */}
       {submission.cell?.content && (
         <div style={styles.cellContent}>
-          <span style={styles.cellLabel}>Pari</span>
+          <span style={styles.cellLabel}>
+            Pari sur {submission.cell.target?.username ?? '—'}
+          </span>
           <p style={styles.cellText}>"{submission.cell.content}"</p>
         </div>
       )}
@@ -300,48 +290,36 @@ function SubmissionCard({
         />
       )}
 
-      {/* Barre de progression */}
-      <div style={styles.progressTrack}>
-        <motion.div
-          animate={{ width: `${progress}%` }}
-          transition={{ duration: 0.4, ease: 'easeOut' }}
-          style={{
-            ...styles.progressBar,
-            background: isValidated ? '#22c55e' : '#6c47ff',
-          }}
-        />
-      </div>
-
-      {/* Votes */}
-      <div style={styles.voteRow}>
-        <div style={styles.voteCounts}>
-          <span style={{ color: '#22c55e', fontSize: '0.8rem' }}>✓ {validVotes}</span>
-          <span style={{ color: '#ef4444', fontSize: '0.8rem' }}>✗ {invalidVotes}</span>
-          <span style={{ color: '#555', fontSize: '0.75rem' }}>seuil : {threshold}</span>
+      {/* Actions / statut */}
+      {isTarget && !hasVoted && (
+        <div style={styles.voteButtons}>
+          <VoteButton
+            label="✓ Valider"
+            active={false}
+            disabled={false}
+            variant="valid"
+            onClick={() => onVote(submission.id, true)}
+          />
+          <VoteButton
+            label="✗ Contester"
+            active={false}
+            disabled={false}
+            variant="invalid"
+            onClick={() => onVote(submission.id, false)}
+          />
         </div>
+      )}
 
-        {!isValidated && (
-          <div style={styles.voteButtons}>
-            <VoteButton
-              label="✓ Valide"
-              active={myVote?.is_valid === true}
-              disabled={!canVote}
-              variant="valid"
-              onClick={() => canVote && onVote(submission.id, true)}
-            />
-            <VoteButton
-              label="✗ Non"
-              active={myVote?.is_valid === false}
-              disabled={!canVote}
-              variant="invalid"
-              onClick={() => canVote && onVote(submission.id, false)}
-            />
-          </div>
-        )}
-      </div>
+      {!isValidated && !isContested && !isTarget && !isOwn && (
+        <p style={styles.ownNote}>
+          En attente de {submission.cell?.target?.username ?? 'la personne ciblée'}
+        </p>
+      )}
 
-      {isOwn && !myVote && (
-        <p style={styles.ownNote}>Tu ne peux pas voter sur ta propre preuve</p>
+      {isOwn && !hasVoted && (
+        <p style={styles.ownNote}>
+          En attente de validation par {submission.cell?.target?.username ?? '—'}
+        </p>
       )}
     </motion.div>
   )
@@ -462,6 +440,15 @@ const styles: Record<string, React.CSSProperties> = {
     borderRadius: '999px',
     border: '1px solid #22c55e',
   },
+  contestedBadge: {
+    background: '#3b0e0e',
+    color: '#ef4444',
+    fontSize: '0.75rem',
+    fontWeight: 600,
+    padding: '0.25rem 0.625rem',
+    borderRadius: '999px',
+    border: '1px solid #ef4444',
+  },
   cellContent: {
     background: '#111',
     borderRadius: '0.75rem',
@@ -495,30 +482,10 @@ const styles: Record<string, React.CSSProperties> = {
     maxHeight: '280px',
     cursor: 'zoom-in',
   },
-  progressTrack: {
-    height: '4px',
-    background: '#2a2a2a',
-    borderRadius: '2px',
-    overflow: 'hidden',
-  },
-  progressBar: {
-    height: '100%',
-    borderRadius: '2px',
-    width: '0%',
-  },
-  voteRow: {
-    display: 'flex',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  voteCounts: {
-    display: 'flex',
-    gap: '0.75rem',
-    alignItems: 'center',
-  },
   voteButtons: {
     display: 'flex',
     gap: '0.5rem',
+    justifyContent: 'flex-end',
   },
   voteBtn: {
     background: 'transparent',
