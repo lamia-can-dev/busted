@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
-import { supabase } from '../lib/supabase'
 import { getSession } from '../lib/session'
 
 export default function NavBar() {
@@ -12,28 +11,17 @@ export default function NavBar() {
 
   useEffect(() => {
     if (!session) return
-    countPendingValidations()
+    setUnseenCount(readUnreadCount())
   }, [location.pathname])
 
-  async function countPendingValidations() {
-    if (!session) return
-    const { data } = await supabase
-      .from('submissions')
-      .select('id, cell:cells(target_user_id), votes(voter_user_id)')
-
-    const count = (data ?? []).filter((s) => {
-      const cell = s.cell as { target_user_id: string } | null
-      if (cell?.target_user_id !== session.userId) return false
-      const votes = s.votes as { voter_user_id: string }[]
-      return !votes.some((v) => v.voter_user_id === session.userId)
-    }).length
-
-    setUnseenCount(count)
+  function readUnreadCount(): number {
+    try { return parseInt(localStorage.getItem('busted_unread_count') ?? '0', 10) }
+    catch { return 0 }
   }
 
   const tabs = [
     { path: '/game', icon: GridIcon, label: 'Grille' },
-    { path: '/feed', icon: FeedIcon, label: 'Feed' },
+    { path: '/activity', icon: BellIcon, label: 'Activité' },
     { path: '/proposals', icon: VoteIcon, label: 'Votes' },
     { path: '/leaderboard', icon: TrophyIcon, label: 'Classement' },
   ]
@@ -42,7 +30,7 @@ export default function NavBar() {
     <nav style={styles.nav}>
       {tabs.map(({ path, icon: Icon, label }) => {
         const active = location.pathname === path
-        const showBadge = label === 'Feed' && unseenCount > 0
+        const showBadge = label === 'Activité' && unseenCount > 0
 
         return (
           <button
@@ -75,7 +63,7 @@ export default function NavBar() {
 
 function GridIcon({ active }: { active: boolean }) {
   return (
-    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke={active ? '#6c47ff' : '#555'} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke={active ? 'var(--color-indigo-light)' : 'var(--color-text-secondary)'} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <rect x="3" y="3" width="7" height="7" rx="1" />
       <rect x="14" y="3" width="7" height="7" rx="1" />
       <rect x="3" y="14" width="7" height="7" rx="1" />
@@ -84,17 +72,18 @@ function GridIcon({ active }: { active: boolean }) {
   )
 }
 
-function FeedIcon({ active }: { active: boolean }) {
+function BellIcon({ active }: { active: boolean }) {
   return (
-    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke={active ? '#6c47ff' : '#555'} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke={active ? 'var(--color-indigo-light)' : 'var(--color-text-secondary)'} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" />
+      <path d="M13.73 21a2 2 0 0 1-3.46 0" />
     </svg>
   )
 }
 
 function VoteIcon({ active }: { active: boolean }) {
   return (
-    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke={active ? '#6c47ff' : '#555'} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke={active ? 'var(--color-indigo-light)' : 'var(--color-text-secondary)'} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <path d="M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.28a2 2 0 0 0 2-1.7l1.38-9a2 2 0 0 0-2-2.3H14z" />
       <path d="M7 22H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h3" />
     </svg>
@@ -103,7 +92,7 @@ function VoteIcon({ active }: { active: boolean }) {
 
 function TrophyIcon({ active }: { active: boolean }) {
   return (
-    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke={active ? '#6c47ff' : '#555'} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke={active ? 'var(--color-indigo-light)' : 'var(--color-text-secondary)'} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6" />
       <path d="M18 9h1.5a2.5 2.5 0 0 0 0-5H18" />
       <path d="M4 22h16" />
@@ -120,44 +109,49 @@ const styles: Record<string, React.CSSProperties> = {
     bottom: 0,
     left: 0,
     right: 0,
-    background: '#111',
-    borderTop: '1px solid #1e1e1e',
+    background: 'var(--color-surface)',
+    borderTop: '1px solid var(--color-border)',
     display: 'flex',
     justifyContent: 'space-around',
     padding: '0.5rem 0 calc(0.5rem + env(safe-area-inset-bottom))',
     zIndex: 100,
   },
   tab: {
+    flex: 1,
     display: 'flex',
     flexDirection: 'column',
     alignItems: 'center',
+    justifyContent: 'center',
     gap: '0.25rem',
     background: 'none',
     border: 'none',
     cursor: 'pointer',
-    padding: '0.5rem 2rem',
+    padding: '0.5rem 0',
     borderRadius: '0.5rem',
+    minHeight: '44px',
   },
   tabActive: {},
   label: {
-    fontSize: '0.7rem',
-    color: '#555',
+    fontFamily: 'var(--font-body)',
+    fontWeight: 400,
+    fontSize: '0.75rem',
+    color: 'var(--color-text-secondary)',
   },
   badge: {
     position: 'absolute',
     top: '-4px',
     right: '-6px',
     background: '#ef4444',
-    color: '#fff',
-    fontSize: '0.6rem',
+    color: 'var(--color-text-primary)',
+    fontSize: '0.75rem',
     fontWeight: 700,
     borderRadius: '999px',
-    minWidth: '16px',
-    height: '16px',
+    minWidth: '18px',
+    height: '18px',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
-    padding: '0 3px',
+    padding: '0 4px',
     lineHeight: 1,
   },
 }

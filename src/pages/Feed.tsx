@@ -4,6 +4,7 @@ import { AnimatePresence, motion } from 'framer-motion'
 import { supabase } from '../lib/supabase'
 import { getSession } from '../lib/session'
 import type { Vote } from '../../supabase/types'
+import Logo from '../components/Logo'
 
 // ─── Types ────────────────────────────────────────────────────
 
@@ -158,7 +159,7 @@ export default function Feed() {
   return (
     <div style={styles.page}>
       <header style={styles.header}>
-        <h1 style={styles.title}>Feed</h1>
+        <Logo variant="full" />
       </header>
 
       {loading && <p style={styles.hint}>Chargement...</p>}
@@ -232,8 +233,8 @@ function SubmissionCard({
   return (
     <motion.div
       animate={{
-        borderColor: isValidated ? '#22c55e' : isContested ? '#ef4444' : '#2a2a2a',
-        backgroundColor: isValidated ? '#0d2018' : isContested ? '#2a1010' : '#1a1a1a',
+        borderColor: isValidated ? '#22c55e' : isContested ? '#ef4444' : 'var(--color-border)',
+        backgroundColor: isValidated ? '#0d2018' : isContested ? '#2a1010' : 'var(--color-surface)',
       }}
       transition={{ duration: 0.5 }}
       style={styles.card}
@@ -345,8 +346,8 @@ function VoteButton({
       disabled={disabled}
       style={{
         ...styles.voteBtn,
-        borderColor: active ? activeColor : '#333',
-        color: active ? activeColor : disabled ? '#444' : '#888',
+        borderColor: active ? activeColor : 'var(--color-border)',
+        color: active ? activeColor : disabled ? 'var(--color-text-secondary)' : 'var(--color-text-secondary)',
         cursor: disabled ? 'not-allowed' : 'pointer',
       }}
     >
@@ -360,9 +361,8 @@ function VoteButton({
 const styles: Record<string, React.CSSProperties> = {
   page: {
     minHeight: '100vh',
-    background: '#0f0f0f',
+    background: 'var(--color-bg)',
     paddingBottom: '6rem',
-    fontFamily: 'system-ui, sans-serif',
   },
   header: {
     padding: '1.5rem 1rem 0.5rem',
@@ -370,9 +370,11 @@ const styles: Record<string, React.CSSProperties> = {
     margin: '0 auto',
   },
   title: {
-    color: '#fff',
-    fontSize: '1.5rem',
-    fontWeight: 700,
+    fontFamily: 'var(--font-title)',
+    fontWeight: 900,
+    fontSize: '1.375rem',
+    color: 'var(--color-text-primary)',
+    letterSpacing: '-0.5px',
     margin: 0,
   },
   list: {
@@ -384,9 +386,9 @@ const styles: Record<string, React.CSSProperties> = {
     gap: '1rem',
   },
   card: {
-    border: '1px solid #2a2a2a',
-    borderRadius: '1.25rem',
-    padding: '1.25rem',
+    border: '1px solid var(--color-border)',
+    borderRadius: '14px',
+    padding: '14px',
     display: 'flex',
     flexDirection: 'column',
     gap: '0.875rem',
@@ -411,8 +413,8 @@ const styles: Record<string, React.CSSProperties> = {
     width: '36px',
     height: '36px',
     borderRadius: '50%',
-    background: '#6c47ff',
-    color: '#fff',
+    background: 'var(--color-indigo)',
+    color: 'var(--color-text-primary)',
     fontWeight: 700,
     fontSize: '0.9rem',
     display: 'flex',
@@ -422,13 +424,16 @@ const styles: Record<string, React.CSSProperties> = {
   },
   username: {
     display: 'block',
-    color: '#fff',
-    fontSize: '0.9rem',
-    fontWeight: 600,
+    fontFamily: 'var(--font-body)',
+    fontWeight: 700,
+    fontSize: '0.8125rem',
+    color: 'var(--color-text-primary)',
   },
   timestamp: {
     display: 'block',
-    color: '#555',
+    fontFamily: 'var(--font-body)',
+    fontWeight: 400,
+    color: 'var(--color-text-secondary)',
     fontSize: '0.75rem',
   },
   validatedBadge: {
@@ -450,12 +455,14 @@ const styles: Record<string, React.CSSProperties> = {
     border: '1px solid #ef4444',
   },
   cellContent: {
-    background: '#111',
+    background: 'var(--color-surface)',
     borderRadius: '0.75rem',
     padding: '0.75rem 1rem',
   },
   cellLabel: {
-    color: '#555',
+    fontFamily: 'var(--font-body)',
+    fontWeight: 400,
+    color: 'var(--color-text-secondary)',
     fontSize: '0.7rem',
     textTransform: 'uppercase',
     letterSpacing: '0.08em',
@@ -463,15 +470,19 @@ const styles: Record<string, React.CSSProperties> = {
     marginBottom: '0.25rem',
   },
   cellText: {
-    color: '#ccc',
-    fontSize: '0.9rem',
+    fontFamily: 'var(--font-body)',
+    fontWeight: 400,
+    fontSize: '0.75rem',
+    color: 'var(--color-text-secondary)',
     fontStyle: 'italic',
     margin: 0,
     lineHeight: 1.4,
   },
   proofText: {
-    color: '#e0e0e0',
-    fontSize: '0.9rem',
+    fontFamily: 'var(--font-body)',
+    fontWeight: 400,
+    fontSize: '0.75rem',
+    color: 'var(--color-text-secondary)',
     lineHeight: 1.5,
     margin: 0,
   },
@@ -492,11 +503,12 @@ const styles: Record<string, React.CSSProperties> = {
     border: '1px solid',
     borderRadius: '0.5rem',
     padding: '0.4rem 0.75rem',
-    fontSize: '0.8rem',
-    fontWeight: 500,
+    fontFamily: 'var(--font-body)',
+    fontWeight: 700,
+    fontSize: '0.8125rem',
   },
   ownNote: {
-    color: '#444',
+    color: 'var(--color-text-secondary)',
     fontSize: '0.75rem',
     margin: 0,
     textAlign: 'center',
@@ -506,12 +518,14 @@ const styles: Record<string, React.CSSProperties> = {
     marginTop: '4rem',
   },
   emptyText: {
-    color: '#ccc',
+    color: 'var(--color-text-primary)',
     fontSize: '1rem',
     marginBottom: '0.5rem',
   },
   hint: {
-    color: '#555',
+    fontFamily: 'var(--font-body)',
+    fontWeight: 400,
+    color: 'var(--color-text-secondary)',
     fontSize: '0.85rem',
     textAlign: 'center',
     marginTop: '1rem',

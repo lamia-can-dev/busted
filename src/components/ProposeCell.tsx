@@ -2,7 +2,8 @@ import { useEffect, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { supabase } from '../lib/supabase'
 import { getSession } from '../lib/session'
-import type { User } from '../../supabase/types'
+import { currentWeekStart, generateGroupSuggestions } from '../lib/suggestChallenges'
+import type { Suggestion, User } from '../../supabase/types'
 
 interface Props {
   onClose: () => void
@@ -13,6 +14,8 @@ export default function ProposeCell({ onClose }: Props) {
   const [members, setMembers] = useState<User[]>([])
   const [targetId, setTargetId] = useState('')
   const [content, setContent] = useState('')
+  const [suggestions, setSuggestions] = useState<Suggestion[]>([])
+  const [usedSuggestionId, setUsedSuggestionId] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState(false)
@@ -29,6 +32,37 @@ export default function ProposeCell({ onClose }: Props) {
         if (data && data.length > 0) setTargetId(data[0].id)
       })
   }, [])
+
+  useEffect(() => {
+    if (!session || !targetId) return
+
+    async function loadSuggestions() {
+      const weekStart = currentWeekStart()
+
+      // Si aucune suggestion n'existe pour ce groupe cette semaine, les générer
+      const { count } = await supabase
+        .from('suggestions')
+        .select('id', { count: 'exact', head: true })
+        .eq('group_id', session!.groupId)
+        .gte('created_at', weekStart)
+
+      if ((count ?? 0) === 0) {
+        await generateGroupSuggestions(session!.groupId, weekStart)
+      }
+
+      // Charger les suggestions disponibles pour cette cible
+      const { data } = await supabase
+        .from('suggestions')
+        .select('*')
+        .eq('group_id', session!.groupId)
+        .eq('target_user_id', targetId)
+        .eq('is_available', true)
+
+      setSuggestions(data ?? [])
+    }
+
+    loadSuggestions()
+  }, [targetId])
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -62,6 +96,14 @@ export default function ProposeCell({ onClose }: Props) {
       setError(insertError.message)
       setLoading(false)
       return
+    }
+
+    // Si la suggestion vient du pool, la marquer indisponible pour tout le groupe
+    if (usedSuggestionId) {
+      await supabase
+        .from('suggestions')
+        .update({ is_available: false })
+        .eq('id', usedSuggestionId)
     }
 
     setSuccess(true)
@@ -119,12 +161,40 @@ export default function ProposeCell({ onClose }: Props) {
                 </div>
               </div>
 
+              {/* Suggestions */}
+              {suggestions.length > 0 && (
+                <div style={styles.field}>
+                  <label style={styles.label}>Suggestions</label>
+                  <div style={styles.suggestionList}>
+                    {suggestions.map((s) => (
+                      <button
+                        key={s.id}
+                        type="button"
+                        onClick={() => {
+                          setContent(s.content)
+                          setUsedSuggestionId(s.id)
+                        }}
+                        style={{
+                          ...styles.suggestionBtn,
+                          ...(usedSuggestionId === s.id ? styles.suggestionBtnActive : {}),
+                        }}
+                      >
+                        {s.content}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               {/* Contenu */}
               <div style={styles.field}>
                 <label style={styles.label}>La case</label>
                 <textarea
                   value={content}
-                  onChange={(e) => setContent(e.target.value)}
+                  onChange={(e) => {
+                    setContent(e.target.value)
+                    setUsedSuggestionId(null)
+                  }}
                   maxLength={80}
                   placeholder="ex: Thomas va parler de son régime au déjeuner"
                   rows={3}
@@ -164,7 +234,7 @@ const styles: Record<string, React.CSSProperties> = {
     alignItems: 'flex-end',
   },
   sheet: {
-    background: '#1a1a1a',
+    background: 'var(--color-surface)',
     borderRadius: '1.5rem 1.5rem 0 0',
     padding: '1rem 1.5rem 2.5rem',
     width: '100%',
@@ -175,12 +245,12 @@ const styles: Record<string, React.CSSProperties> = {
   handle: {
     width: '40px',
     height: '4px',
-    background: '#333',
+    background: 'var(--color-border)',
     borderRadius: '2px',
     margin: '0 auto 1.25rem',
   },
   title: {
-    color: '#fff',
+    color: 'var(--color-text-primary)',
     fontSize: '1.2rem',
     fontWeight: 700,
     marginBottom: '1.5rem',
@@ -196,9 +266,10 @@ const styles: Record<string, React.CSSProperties> = {
     gap: '0.5rem',
   },
   label: {
-    color: '#888',
-    fontSize: '0.8rem',
-    fontWeight: 500,
+    fontFamily: 'var(--font-body)',
+    fontWeight: 400,
+    color: 'var(--color-text-secondary)',
+    fontSize: '0.875rem',
     textTransform: 'uppercase',
     letterSpacing: '0.06em',
   },
@@ -211,15 +282,16 @@ const styles: Record<string, React.CSSProperties> = {
     display: 'flex',
     alignItems: 'center',
     gap: '0.5rem',
-    background: '#2a2a2a',
-    border: '1px solid #333',
+    background: 'var(--color-border)',
+    border: '1px solid var(--color-border)',
     borderRadius: '2rem',
-    padding: '0.4rem 0.875rem 0.4rem 0.4rem',
+    padding: '0.5rem 0.875rem 0.5rem 0.5rem',
     cursor: 'pointer',
+    minHeight: '44px',
   },
   memberBtnActive: {
-    borderColor: '#6c47ff',
-    background: '#1a1430',
+    borderColor: 'var(--color-indigo)',
+    background: 'var(--color-surface)',
   },
   avatar: {
     width: '24px',
@@ -231,49 +303,78 @@ const styles: Record<string, React.CSSProperties> = {
     width: '24px',
     height: '24px',
     borderRadius: '50%',
-    background: '#6c47ff',
-    color: '#fff',
-    fontSize: '0.7rem',
+    background: '#1E1B4B',
+    color: 'var(--color-indigo-light)',
+    fontSize: '0.75rem',
     fontWeight: 700,
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
   },
   memberName: {
-    color: '#ccc',
+    color: 'var(--color-text-primary)',
     fontSize: '0.875rem',
     fontWeight: 500,
   },
+  suggestionList: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '0.375rem',
+    maxHeight: '180px',
+    overflowY: 'auto',
+  },
+  suggestionBtn: {
+    background: 'var(--color-bg)',
+    border: '1px solid var(--color-border)',
+    borderRadius: '0.625rem',
+    color: 'var(--color-text-secondary)',
+    fontFamily: 'var(--font-body)',
+    fontWeight: 400,
+    fontSize: '0.875rem',
+    padding: '0.625rem 0.75rem',
+    cursor: 'pointer',
+    textAlign: 'left' as const,
+    lineHeight: 1.4,
+    transition: 'all 0.15s',
+    minHeight: '44px',
+  },
+  suggestionBtnActive: {
+    borderColor: 'var(--color-indigo)',
+    color: 'var(--color-text-primary)',
+    background: 'rgba(67,97,238,0.08)',
+  },
   textarea: {
-    background: '#111',
-    border: '1px solid #333',
+    background: 'var(--color-bg)',
+    border: '1px solid var(--color-border)',
     borderRadius: '0.75rem',
-    color: '#fff',
+    color: 'var(--color-text-primary)',
     fontSize: '0.95rem',
     padding: '0.75rem 1rem',
     resize: 'none',
     lineHeight: 1.5,
     outline: 'none',
-    fontFamily: 'system-ui, sans-serif',
+    fontFamily: 'var(--font-body)',
   },
   counter: {
-    color: '#555',
-    fontSize: '0.75rem',
+    color: 'var(--color-text-secondary)',
+    fontSize: '0.875rem',
     alignSelf: 'flex-end',
   },
   submitBtn: {
-    background: '#6c47ff',
-    color: '#fff',
+    background: 'var(--color-indigo)',
+    color: '#ffffff',
     border: 'none',
-    borderRadius: '0.75rem',
+    borderRadius: '20px',
     padding: '0.875rem',
-    fontSize: '1rem',
-    fontWeight: 600,
+    fontFamily: 'var(--font-body)',
+    fontWeight: 700,
+    fontSize: '0.9375rem',
     cursor: 'pointer',
+    minHeight: '44px',
   },
   submitBtnDisabled: {
-    background: '#2a2a2a',
-    color: '#555',
+    background: 'var(--color-border)',
+    color: 'var(--color-text-secondary)',
     cursor: 'not-allowed',
   },
   error: {

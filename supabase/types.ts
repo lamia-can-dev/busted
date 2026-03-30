@@ -20,6 +20,7 @@ export interface Database {
       submissions: SubmissionsTable
       votes: VotesTable
       proposals: ProposalsTable
+      suggestions: SuggestionsTable
     }
     Views: Record<string, never>
     Functions: {
@@ -42,6 +43,8 @@ export interface Group {
   invite_code: string
   created_at: string
   reveal_at: string | null
+  grid_size: number
+  duration_days: number
 }
 
 export interface User {
@@ -67,6 +70,8 @@ export interface Cell {
   grid_id: string
   target_user_id: string
   content: string | null
+  position: number
+  status: 'unchecked' | 'pending_confirmation' | 'pending_vote' | 'busted' | 'rejected'
   is_auto_generated: boolean
   created_at: string
 }
@@ -99,6 +104,15 @@ export interface Proposal {
   created_at: string
 }
 
+export interface Suggestion {
+  id: string
+  group_id: string
+  target_user_id: string
+  content: string
+  is_available: boolean
+  created_at: string
+}
+
 // ─────────────────────────────────────────────────────────────
 // Insert types (création de nouvelles lignes)
 // ─────────────────────────────────────────────────────────────
@@ -109,6 +123,8 @@ export interface GroupInsert {
   invite_code: string
   created_at?: string
   reveal_at?: string | null
+  grid_size?: number
+  duration_days?: number
 }
 
 export interface UserInsert {
@@ -166,6 +182,17 @@ export interface ProposalInsert {
   created_at?: string
 }
 
+export interface SuggestionInsert {
+  id?: string
+  group_id: string
+  target_user_id: string
+  content: string
+  is_available?: boolean
+  created_at?: string
+}
+
+export type SuggestionUpdate = Partial<SuggestionInsert>
+
 // ─────────────────────────────────────────────────────────────
 // Update types (mise à jour partielle)
 // ─────────────────────────────────────────────────────────────
@@ -177,6 +204,7 @@ export type CellUpdate = Partial<CellInsert>
 export type SubmissionUpdate = Partial<SubmissionInsert>
 export type VoteUpdate = Partial<VoteInsert>
 export type ProposalUpdate = Partial<ProposalInsert>
+// SuggestionUpdate is defined inline above
 
 // ─────────────────────────────────────────────────────────────
 // Table definitions (utilisés par createClient<Database>)
@@ -302,6 +330,26 @@ interface ProposalsTable {
     },
     {
       foreignKeyName: 'proposals_target_user_id_fkey'
+      columns: ['target_user_id']
+      referencedRelation: 'users'
+      referencedColumns: ['id']
+    }
+  ]
+}
+
+interface SuggestionsTable {
+  Row: Suggestion
+  Insert: SuggestionInsert
+  Update: SuggestionUpdate
+  Relationships: [
+    {
+      foreignKeyName: 'suggestions_group_id_fkey'
+      columns: ['group_id']
+      referencedRelation: 'groups'
+      referencedColumns: ['id']
+    },
+    {
+      foreignKeyName: 'suggestions_target_user_id_fkey'
       columns: ['target_user_id']
       referencedRelation: 'users'
       referencedColumns: ['id']

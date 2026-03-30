@@ -1,47 +1,48 @@
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
+import confetti from 'canvas-confetti'
 import { supabase } from '../lib/supabase'
 import { getSession } from '../lib/session'
 import type { Cell, Grid, User } from '../../supabase/types'
 import ProposeCell from '../components/ProposeCell'
-import SubmitProof from '../components/SubmitProof'
+import CellSheet from '../components/CellSheet'
+import ProofSheet from '../components/ProofSheet'
+import Logo from '../components/Logo'
 import { generateGridFromPool } from '../lib/generateGrid'
-
-// ─── Bingo ────────────────────────────────────────────────────
-
-const LINES_3x3 = [
-  [0, 1, 2], [3, 4, 5], [6, 7, 8], // lignes
-  [0, 3, 6], [1, 4, 7], [2, 5, 8], // colonnes
-  [0, 4, 8], [2, 4, 6],             // diagonales
-]
-
-function getCompletedLines(cells: GridWithCells['cells']): number[][] {
-  return LINES_3x3.filter((line) =>
-    line.every((i) => cells[i]?.submission?.targetValidated === true)
-  )
-}
-
-function getBingoIndices(cells: GridWithCells['cells']): Set<number> {
-  const indices = new Set<number>()
-  getCompletedLines(cells).forEach((line) => line.forEach((i) => indices.add(i)))
-  return indices
-}
+import { checkLines, checkColumns, checkDiagonals } from '../lib/bingoUtils'
 
 // ─── Types ────────────────────────────────────────────────────
 
-interface SubmissionStatus {
-  targetValidated: boolean | null
+interface SubmissionData {
+  id: string
+  submitter_user_id: string
+  proof_text: string | null
+  proof_image_url: string | null
+  created_at: string
 }
 
 interface GridWithCells extends Grid {
   cells: (Cell & {
     target: User | null
-    submission: SubmissionStatus | null
+    submission: SubmissionData | null
   })[]
 }
 
 type SelectedCell = GridWithCells['cells'][number]
+
+// ─── Config by grid size ───────────────────────────────────────
+
+const CELL_CONFIG: Record<number, { minHeight: number; fontSize: number }> = {
+  3: { minHeight: 80, fontSize: 11 },
+  4: { minHeight: 64, fontSize: 10 },
+  5: { minHeight: 54, fontSize: 9 },
+}
+
+function trunc(s: string | null | undefined, max: number): string {
+  if (!s) return '—'
+  return s.length > max ? s.slice(0, max) + '…' : s
+}
 
 // ─── Main ─────────────────────────────────────────────────────
 
@@ -54,9 +55,11 @@ export default function Game() {
   const [error, setError] = useState<string | null>(null)
   const [showPropose, setShowPropose] = useState(false)
   const [selectedCell, setSelectedCell] = useState<SelectedCell | null>(null)
+  const [showCellSheet, setShowCellSheet] = useState(false)
   const [showBingo, setShowBingo] = useState(false)
 
   const prevBingoCountRef = useRef(0)
+  const isFirstLoadRef = useRef(true)
   const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null)
 
   const [approvedCount, setApprovedCount] = useState(0)
@@ -69,6 +72,7 @@ export default function Game() {
   useEffect(() => {
     if (!session) { navigate('/'); return }
     loadGrid()
+    subscribeRealtime()
     return () => { channelRef.current?.unsubscribe() }
   }, [])
 
@@ -108,70 +112,61 @@ export default function Game() {
     if (cellsError) { setError(cellsError.message); setLoading(false); return }
 
     const targetIds = [...new Set((cells ?? []).map((c) => c.target_user_id))]
-    const { data: users, error: usersError } = await supabase
-      .from('users')
-      .select('*')
-      .in('id', targetIds)
-    if (usersError) console.error('[Game] users error:', usersError)
+    const { data: users } = await supabase.from('users').select('*').in('id', targetIds)
     const userMap = new Map((users ?? []).map((u) => [u.id, u]))
 
-    // Validation au niveau du pari (content + target_user_id)
-    const { data: groupSubmissions, error: submissionsError } = await supabase
+    const cellIds = (cells ?? []).map((c) => c.id)
+    const { data: submissions } = await supabase
       .from('submissions')
-      .select('cell:cells(content, target_user_id), votes(voter_user_id, is_valid)')
-    if (submissionsError) console.error('[Game] submissions error:', submissionsError)
+      .select('id, cell_id, submitter_user_id, proof_text, proof_image_url, created_at')
+      .in('cell_id', cellIds)
 
-    const proposalMap = new Map<string, SubmissionStatus>()
-    for (const sub of groupSubmissions ?? []) {
-      const cellData = sub.cell as { content: string | null; target_user_id: string } | null
-      if (!cellData) continue
-      const key = `${cellData.content}::${cellData.target_user_id}`
-      if (proposalMap.get(key)?.targetValidated === true) continue
-      const targetVote = (sub.votes as { voter_user_id: string; is_valid: boolean }[])
-        .find((v) => v.voter_user_id === cellData.target_user_id)
-      if (targetVote) {
-        proposalMap.set(key, { targetValidated: targetVote.is_valid })
-      } else if (!proposalMap.has(key)) {
-        proposalMap.set(key, { targetValidated: null })
-      }
+    const submissionMap = new Map<string, SubmissionData>()
+    for (const s of submissions ?? []) {
+      if (!submissionMap.has(s.cell_id)) submissionMap.set(s.cell_id, s as SubmissionData)
     }
 
     const newCells = (cells ?? []).map((c) => {
-      const key = `${c.content}::${c.target_user_id}`
+      const submission = submissionMap.get(c.id) ?? null
+      const dbStatus = (c.status ?? 'unchecked') as Cell['status']
+      // Si la colonne status n'existe pas en DB (undefined→'unchecked') mais qu'une
+      // soumission existe, on affiche au moins l'état en attente de validation
+      const status: Cell['status'] =
+        dbStatus === 'unchecked' && submission !== null ? 'pending_confirmation' : dbStatus
       return {
         ...c,
+        status,
         target: userMap.get(c.target_user_id) ?? null,
-        submission: proposalMap.get(key) ?? null,
+        submission,
       }
     })
 
     const newGrid = { ...currentGrid, cells: newCells }
-
-    // Détecter nouveau bingo
-    const newBingoCount = getCompletedLines(newCells).length
-    if (newBingoCount > prevBingoCountRef.current) {
+    const n = Math.round(Math.sqrt(newCells.length))
+    const diags = checkDiagonals(newCells, n)
+    const newBingoCount = checkLines(newCells, n).length + checkColumns(newCells, n).length + diags.filter(Boolean).length
+    if (!isFirstLoadRef.current && newBingoCount > prevBingoCountRef.current) {
       setShowBingo(true)
       setTimeout(() => setShowBingo(false), 3000)
+      confetti({ particleCount: 120, spread: 80, origin: { y: 0.5 }, colors: ['#FF5FCC', '#6366F1', '#facc15'] })
     }
     prevBingoCountRef.current = newBingoCount
+    isFirstLoadRef.current = false
 
     setGrid(newGrid)
     setLoading(false)
-    subscribeRealtime()
   }
 
   function subscribeRealtime() {
-    channelRef.current?.unsubscribe()
+    if (channelRef.current) return
     channelRef.current = supabase
       .channel('game-realtime')
-      .on('postgres_changes',
-        { event: 'INSERT', schema: 'public', table: 'votes' },
-        () => loadGrid()
-      )
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'votes' }, () => loadGrid())
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'cells' }, () => loadGrid())
       .subscribe()
   }
 
-  async function generateGrid() {
+  async function handleGenerate() {
     if (!session) return
     setGenerating(true)
     setGenerateError(null)
@@ -188,22 +183,28 @@ export default function Game() {
     if (!session) return
     if (inviteCode) { setShowInvite(true); return }
     const { data } = await supabase
-      .from('groups')
-      .select('invite_code')
-      .eq('id', session.groupId)
-      .single()
+      .from('groups').select('invite_code').eq('id', session.groupId).single()
     if (data) setInviteCode(data.invite_code)
     setShowInvite(true)
   }
 
   if (!session) return null
 
-  const bingoIndices = grid ? getBingoIndices(grid.cells) : new Set<number>()
-  const bingoCount = grid ? getCompletedLines(grid.cells).length : 0
+  const n = grid ? Math.round(Math.sqrt(grid.cells.length)) : 3
+  const cellCfg = CELL_CONFIG[n] ?? CELL_CONFIG[3]
+  const completedLineCount = grid ? (() => {
+    const diags = checkDiagonals(grid.cells, n)
+    return checkLines(grid.cells, n).length + checkColumns(grid.cells, n).length + diags.filter(Boolean).length
+  })() : 0
+
+  const isColComplete = (c: number) => !!grid && checkColumns(grid.cells, n).includes(c)
+  const isRowComplete = (r: number) => !!grid && checkLines(grid.cells, n).includes(r)
+
+  const DOT = 12 // px — width of row/col indicator slot
 
   return (
     <div style={styles.page}>
-      {/* Animation BINGO */}
+      {/* BINGO overlay */}
       <AnimatePresence>
         {showBingo && (
           <motion.div
@@ -220,11 +221,8 @@ export default function Game() {
       </AnimatePresence>
 
       <header style={styles.header}>
-        <h1 style={styles.title}>Busted</h1>
+        <Logo variant="full" />
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-          {bingoCount > 0 && (
-            <span style={styles.bingoBadge}>🎯 {bingoCount} bingo{bingoCount > 1 ? 's' : ''}</span>
-          )}
           {grid && (
             <span style={styles.weekLabel}>Semaine du {formatDate(grid.week_start)}</span>
           )}
@@ -243,21 +241,19 @@ export default function Game() {
         <div style={styles.emptyState}>
           <p style={styles.emptyText}>Pas encore de grille pour cette semaine.</p>
           <div style={styles.progressChip}>
-            <span style={{ color: approvedCount >= 9 ? '#22c55e' : '#888' }}>
+            <span style={{ color: approvedCount >= 9 ? '#22c55e' : 'var(--color-text-secondary)' }}>
               {approvedCount}/9 paris approuvés
             </span>
           </div>
           {approvedCount >= 9 ? (
             <>
-              <button onClick={generateGrid} disabled={generating} style={styles.generateBtn}>
+              <button onClick={handleGenerate} disabled={generating} style={styles.generateBtn}>
                 {generating ? 'Génération...' : 'Générer ma grille →'}
               </button>
               {generateError && <p style={styles.error}>{generateError}</p>}
             </>
           ) : (
-            <p style={styles.hint}>
-              Propose des paris dans l'onglet Votes pour atteindre les 9 requis.
-            </p>
+            <p style={styles.hint}>Propose des paris dans l'onglet Votes pour atteindre les 9 requis.</p>
           )}
         </div>
       )}
@@ -265,33 +261,93 @@ export default function Game() {
       {error && <p style={styles.error}>{error}</p>}
 
       {grid && (
-        <div style={styles.gridContainer}>
-          {grid.cells.map((cell, i) => (
-            <CellCard
-              key={cell.id}
-              cell={cell}
-              isBingo={bingoIndices.has(i)}
-              onClick={() => {
-                if (!cell.submission) setSelectedCell(cell)
-              }}
-            />
+        <div style={styles.gridWrapper}>
+          {/* ── Indicateurs de colonnes ── */}
+          <div style={{ display: 'flex', gap: '4px', marginBottom: '4px', paddingLeft: DOT + 4 }}>
+            {Array.from({ length: n }, (_, c) => (
+              <div key={c} style={{ flex: 1, display: 'flex', justifyContent: 'center' }}>
+                <motion.div
+                  animate={{ background: isColComplete(c) ? 'var(--color-rose)' : '#3A3A5A' }}
+                  transition={{ duration: 0.4 }}
+                  style={styles.dot}
+                />
+              </div>
+            ))}
+          </div>
+
+          {/* ── Lignes de la grille ── */}
+          {Array.from({ length: n }, (_, r) => (
+            <div key={r} style={{ display: 'flex', gap: '4px', marginBottom: r < n - 1 ? '4px' : 0 }}>
+              {/* Indicateur de ligne */}
+              <div style={{ width: DOT, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <motion.div
+                  animate={{ background: isRowComplete(r) ? 'var(--color-rose)' : '#3A3A5A' }}
+                  transition={{ duration: 0.4 }}
+                  style={styles.dot}
+                />
+              </div>
+
+              {/* Cases de la ligne */}
+              {Array.from({ length: n }, (_, c) => {
+                const cell = grid.cells[r * n + c]
+                return (
+                  <CellCard
+                    key={cell?.id ?? `${r}-${c}`}
+                    cell={cell}
+                    minHeight={cellCfg.minHeight}
+                    fontSize={cellCfg.fontSize}
+                    onClick={() => { if (cell) { setSelectedCell(cell); setShowCellSheet(true) } }}
+                  />
+                )
+              })}
+            </div>
           ))}
+
+          {/* ── BINGO pills ── */}
+          <AnimatePresence>
+            {completedLineCount > 0 && (
+              <motion.div
+                key="bingo-pills"
+                initial={{ opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: 8 }}
+                style={styles.bingoPillRow}
+              >
+                {Array.from({ length: completedLineCount }, (_, i) => (
+                  <span key={i} style={styles.bingoPill}>BINGO !</span>
+                ))}
+              </motion.div>
+            )}
+          </AnimatePresence>
+
         </div>
       )}
 
       <button onClick={() => setShowPropose(true)} style={styles.fab}>+</button>
-
       {showPropose && <ProposeCell onClose={() => setShowPropose(false)} />}
+      <AnimatePresence>
+        {showCellSheet && selectedCell && (
+          <CellSheet
+            key="cell-sheet"
+            cell={selectedCell}
+            onClose={() => { setShowCellSheet(false); setSelectedCell(null) }}
+            onSubmitProof={() => setShowCellSheet(false)}
+            onUpdated={() => { setShowCellSheet(false); setSelectedCell(null); loadGrid() }}
+          />
+        )}
+      </AnimatePresence>
+      <AnimatePresence>
+        {!showCellSheet && selectedCell && selectedCell.submission === null && (
+          <ProofSheet
+            key="proof-sheet"
+            cell={selectedCell}
+            onClose={() => setSelectedCell(null)}
+            onSubmitted={loadGrid}
+          />
+        )}
+      </AnimatePresence>
 
-      {selectedCell && (
-        <SubmitProof
-          cell={selectedCell}
-          onClose={() => setSelectedCell(null)}
-          onSubmitted={loadGrid}
-        />
-      )}
-
-      {/* Invite modal */}
+      {/* ── Modal invitation ── */}
       <AnimatePresence>
         {showInvite && inviteCode && (
           <motion.div
@@ -335,49 +391,71 @@ export default function Game() {
 
 function CellCard({
   cell,
-  isBingo,
+  minHeight,
+  fontSize,
   onClick,
 }: {
-  cell: GridWithCells['cells'][number]
-  isBingo: boolean
+  cell: GridWithCells['cells'][number] | undefined
+  minHeight: number
+  fontSize: number
   onClick: () => void
 }) {
-  const { submission } = cell
-  const isValidated = submission?.targetValidated === true
-  const isContested = submission?.targetValidated === false
-  const isPending = submission !== null && submission.targetValidated === null
+  if (!cell) return <div style={{ flex: 1 }} />
+
+  const { status } = cell
+
+  const strip =
+    status === 'busted'                ? { text: 'Busted !',                 bg: 'var(--color-rose)', color: '#fff' }
+    : status === 'pending_confirmation'  ? { text: 'En attente de validation', bg: '#4338CA',           color: '#fff' }
+    : status === 'pending_vote'          ? { text: 'Vote en cours',            bg: '#1E3A00',           color: '#A0D000' }
+    : status === 'rejected'              ? { text: 'Rejeté',                   bg: '#2A2A4A',           color: '#7878AA' }
+    : null
+
+  const borderColor =
+    status === 'busted'                ? 'var(--color-rose)'
+    : status === 'pending_confirmation'  ? '#6366F1'
+    : status === 'pending_vote'          ? '#4A6000'
+    : status === 'rejected'              ? '#3A3A5A'
+    : 'var(--color-border)'
+
+  const bgColor =
+    status === 'busted'                ? 'rgba(255,95,204,0.08)'
+    : status === 'pending_confirmation'  ? 'rgba(99,102,241,0.08)'
+    : status === 'pending_vote'          ? 'rgba(80,120,0,0.08)'
+    : 'var(--color-surface)'
 
   return (
     <motion.button
       onClick={onClick}
-      animate={{
-        borderColor: isBingo ? '#facc15' : isValidated ? '#22c55e' : isContested ? '#ef4444' : '#2a2a2a',
-        backgroundColor: isBingo ? '#1f1a00' : isValidated ? '#0d2018' : isContested ? '#2a1010' : '#1a1a1a',
-        boxShadow: isBingo ? '0 0 12px rgba(250,204,21,0.35)' : 'none',
-      }}
-      transition={{ duration: 0.4 }}
-      style={{
-        ...styles.cell,
-        cursor: submission ? 'default' : 'pointer',
-      }}
+      animate={{ borderColor }}
+      transition={{ duration: 0.35 }}
+      style={{ ...styles.cell, minHeight, cursor: 'pointer', background: bgColor }}
     >
-      {cell.target && (
-        <div style={styles.targetBadge}>
-          {cell.target.avatar_url ? (
-            <img src={cell.target.avatar_url} style={styles.avatar} alt="" />
-          ) : (
-            <div style={styles.avatarFallback}>
-              {cell.target.username[0].toUpperCase()}
-            </div>
-          )}
-          <span style={styles.targetName}>{cell.target.username}</span>
+      {/* Ligne du haut : avatar + pseudo */}
+      <div style={styles.cellTop}>
+        {cell.target?.avatar_url ? (
+          <img src={cell.target.avatar_url} style={styles.avatar} alt="" />
+        ) : (
+          <div style={styles.avatarFallback}>
+            {cell.target?.username[0]?.toUpperCase() ?? '?'}
+          </div>
+        )}
+        <span style={{ ...styles.targetName, fontSize }}>
+          {cell.target?.username ?? '—'}
+        </span>
+      </div>
+
+      {/* Texte du défi */}
+      <p style={{ ...styles.cellContent, fontSize, WebkitLineClamp: strip ? 2 : 3 } as React.CSSProperties}>
+        {cell.content}
+      </p>
+
+      {/* Bandelette d'état */}
+      {strip && (
+        <div style={{ ...styles.statusStrip, background: strip.bg, color: strip.color }}>
+          {strip.text}
         </div>
       )}
-      <p style={styles.cellContent}>{cell.content}</p>
-      {isBingo && <div style={{ ...styles.statusIcon, color: '#facc15' }}>★</div>}
-      {!isBingo && isValidated && <div style={styles.statusIcon}>✓</div>}
-      {!isBingo && isContested && <div style={{ ...styles.statusIcon, color: '#ef4444' }}>✗</div>}
-      {isPending && !isBingo && <div style={{ ...styles.statusIcon, color: '#888', fontSize: '0.65rem' }}>⏳</div>}
     </motion.button>
   )
 }
@@ -391,9 +469,8 @@ function formatDate(iso: string): string {
 const styles: Record<string, React.CSSProperties> = {
   page: {
     minHeight: '100vh',
-    background: '#0f0f0f',
+    background: 'var(--color-bg)',
     padding: '1.5rem 1rem 6rem',
-    fontFamily: 'system-ui, sans-serif',
   },
   bingoOverlay: {
     position: 'fixed',
@@ -414,7 +491,7 @@ const styles: Record<string, React.CSSProperties> = {
     textShadow: '0 0 40px rgba(250,204,21,0.8)',
   },
   bingoSub: {
-    color: '#fff',
+    color: 'var(--color-text-primary)',
     fontSize: '1.1rem',
     marginTop: '0.5rem',
   },
@@ -423,100 +500,122 @@ const styles: Record<string, React.CSSProperties> = {
     alignItems: 'center',
     justifyContent: 'space-between',
     maxWidth: '520px',
-    margin: '0 auto 1.5rem',
-  },
-  title: {
-    color: '#fff',
-    fontSize: '1.5rem',
-    fontWeight: 700,
-    margin: 0,
+    margin: '0 auto 1.25rem',
   },
   weekLabel: {
-    color: '#666',
+    color: 'var(--color-text-secondary)',
     fontSize: '0.85rem',
   },
-  bingoBadge: {
-    background: '#1f1a00',
-    color: '#facc15',
-    border: '1px solid #facc15',
-    borderRadius: '999px',
-    padding: '0.2rem 0.6rem',
-    fontSize: '0.75rem',
-    fontWeight: 700,
-  },
-  gridContainer: {
-    display: 'grid',
-    gridTemplateColumns: 'repeat(3, 1fr)',
-    gap: '0.75rem',
+  gridWrapper: {
     maxWidth: '520px',
     margin: '0 auto',
   },
+  dot: {
+    width: '7px',
+    height: '7px',
+    borderRadius: '50%',
+  },
   cell: {
+    flex: 1,
     position: 'relative',
-    border: '1px solid #2a2a2a',
-    borderRadius: '1rem',
-    padding: '0.875rem',
+    border: '1px solid var(--color-border)',
+    borderRadius: '10px',
+    padding: '7px 8px 20px',
     textAlign: 'left',
     display: 'flex',
     flexDirection: 'column',
-    gap: '0.5rem',
-    aspectRatio: '1',
+    gap: '4px',
     overflow: 'hidden',
+    background: 'var(--color-surface)',
   },
-  targetBadge: {
+  cellTop: {
     display: 'flex',
     alignItems: 'center',
-    gap: '0.4rem',
+    gap: '4px',
+    overflow: 'hidden',
   },
   avatar: {
-    width: '20px',
-    height: '20px',
+    width: '14px',
+    height: '14px',
     borderRadius: '50%',
     objectFit: 'cover',
+    flexShrink: 0,
   },
   avatarFallback: {
-    width: '20px',
-    height: '20px',
+    width: '14px',
+    height: '14px',
     borderRadius: '50%',
-    background: '#6c47ff',
+    background: 'var(--color-indigo)',
     color: '#fff',
-    fontSize: '0.65rem',
+    fontSize: '8px',
     fontWeight: 700,
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
+    flexShrink: 0,
   },
   targetName: {
-    color: '#888',
-    fontSize: '0.75rem',
-    fontWeight: 500,
+    fontFamily: 'var(--font-body)',
+    fontWeight: 700,
+    color: 'var(--color-text-primary)',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap' as const,
   },
   cellContent: {
-    color: '#e0e0e0',
-    fontSize: '0.8rem',
-    lineHeight: 1.4,
+    fontFamily: 'var(--font-body)',
+    fontWeight: 400,
+    color: 'var(--color-text-secondary)',
+    lineHeight: 1.3,
     margin: 0,
-    flex: 1,
-  },
-  statusIcon: {
+    display: '-webkit-box',
+    WebkitBoxOrient: 'vertical',
+    overflow: 'hidden',
+  } as React.CSSProperties,
+  statusStrip: {
     position: 'absolute',
-    top: '0.5rem',
-    right: '0.6rem',
-    color: '#22c55e',
-    fontSize: '0.85rem',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    height: '16px',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    fontSize: '8px',
     fontWeight: 700,
+    fontFamily: 'var(--font-body)',
+    letterSpacing: '0.04em',
+    borderRadius: '0 0 9px 9px',
+  },
+  bingoPillRow: {
+    display: 'flex',
+    flexWrap: 'wrap',
+    gap: '0.5rem',
+    marginTop: '0.875rem',
+  },
+  bingoPill: {
+    background: 'rgba(255,95,204,0.15)',
+    color: 'var(--color-rose)',
+    border: '1px solid var(--color-rose)',
+    borderRadius: '999px',
+    padding: '0.3rem 0.875rem',
+    fontSize: '0.8rem',
+    fontWeight: 700,
+    fontFamily: 'var(--font-body)',
   },
   emptyState: {
     textAlign: 'center',
     marginTop: '4rem',
   },
   emptyText: {
-    color: '#ccc',
+    color: 'var(--color-text-primary)',
     fontSize: '1rem',
     marginBottom: '0.5rem',
   },
   hint: {
-    color: '#555',
+    fontFamily: 'var(--font-body)',
+    fontWeight: 400,
+    color: 'var(--color-text-secondary)',
     fontSize: '0.85rem',
     textAlign: 'center',
     marginTop: '1rem',
@@ -533,8 +632,8 @@ const styles: Record<string, React.CSSProperties> = {
     width: '52px',
     height: '52px',
     borderRadius: '50%',
-    background: '#6c47ff',
-    color: '#fff',
+    background: 'var(--color-rose)',
+    color: 'var(--color-text-primary)',
     fontSize: '1.75rem',
     fontWeight: 300,
     border: 'none',
@@ -548,7 +647,7 @@ const styles: Record<string, React.CSSProperties> = {
   },
   inviteBtn: {
     background: 'transparent',
-    border: '1px solid #2a2a2a',
+    border: '1px solid var(--color-border)',
     borderRadius: '50%',
     width: '32px',
     height: '32px',
@@ -556,7 +655,7 @@ const styles: Record<string, React.CSSProperties> = {
     alignItems: 'center',
     justifyContent: 'center',
     cursor: 'pointer',
-    color: '#888',
+    color: 'var(--color-text-secondary)',
     padding: 0,
     flexShrink: 0,
   },
@@ -569,7 +668,7 @@ const styles: Record<string, React.CSSProperties> = {
     alignItems: 'flex-end',
   },
   inviteSheet: {
-    background: '#1a1a1a',
+    background: 'var(--color-surface)',
     borderRadius: '1.5rem 1.5rem 0 0',
     padding: '1rem 1.5rem 2.5rem',
     width: '100%',
@@ -580,47 +679,49 @@ const styles: Record<string, React.CSSProperties> = {
   handle: {
     width: '40px',
     height: '4px',
-    background: '#333',
+    background: 'var(--color-border)',
     borderRadius: '2px',
     margin: '0 auto 1.25rem',
   },
   inviteTitle: {
-    color: '#fff',
+    color: 'var(--color-text-primary)',
     fontSize: '1.2rem',
     fontWeight: 700,
     margin: '0 0 0.5rem',
   },
   inviteHint: {
-    color: '#666',
+    color: 'var(--color-text-secondary)',
     fontSize: '0.85rem',
     margin: '0 0 1.25rem',
   },
   inviteCode: {
-    background: '#111',
-    border: '1px solid #2a2a2a',
+    background: 'var(--color-bg)',
+    border: '1px solid var(--color-border)',
     borderRadius: '0.75rem',
     padding: '1rem',
     textAlign: 'center',
     fontSize: '2rem',
     fontWeight: 700,
-    color: '#fff',
+    color: 'var(--color-text-primary)',
     letterSpacing: '0.2em',
     marginBottom: '1rem',
   },
   copyBtn: {
-    background: '#6c47ff',
-    color: '#fff',
+    background: 'var(--color-indigo)',
+    color: 'var(--color-text-primary)',
     border: 'none',
     borderRadius: '0.75rem',
     padding: '0.875rem',
-    fontSize: '1rem',
-    fontWeight: 600,
+    fontFamily: 'var(--font-body)',
+    fontWeight: 700,
+    fontSize: '0.9375rem',
     cursor: 'pointer',
     width: '100%',
+    minHeight: '44px',
   },
   progressChip: {
-    background: '#1a1a1a',
-    border: '1px solid #2a2a2a',
+    background: 'var(--color-surface)',
+    border: '1px solid var(--color-border)',
     borderRadius: '999px',
     padding: '0.375rem 0.875rem',
     fontSize: '0.85rem',
@@ -628,18 +729,15 @@ const styles: Record<string, React.CSSProperties> = {
     marginBottom: '1rem',
   },
   generateBtn: {
-    background: '#6c47ff',
-    color: '#fff',
+    background: 'var(--color-indigo)',
+    color: 'var(--color-text-primary)',
     border: 'none',
     borderRadius: '0.75rem',
     padding: '0.875rem 1.5rem',
-    fontSize: '1rem',
-    fontWeight: 600,
+    fontFamily: 'var(--font-body)',
+    fontWeight: 700,
+    fontSize: '0.9375rem',
     cursor: 'pointer',
-  },
-  error: {
-    color: '#ff6b6b',
-    textAlign: 'center',
-    fontSize: '0.875rem',
+    minHeight: '44px',
   },
 }

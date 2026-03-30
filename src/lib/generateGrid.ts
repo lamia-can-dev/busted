@@ -1,5 +1,6 @@
 import { supabase } from './supabase'
 import type { Cell, Grid } from '../../supabase/types'
+import { generateGroupSuggestions } from './suggestChallenges'
 
 // ─────────────────────────────────────────────────────────────
 // Types
@@ -35,14 +36,24 @@ function currentWeekStart(): string {
 // ─────────────────────────────────────────────────────────────
 
 /**
- * Génère et insère une grille 3×3 pour un utilisateur
- * en piochant 9 paris du pool partagé du groupe,
+ * Génère et insère une grille pour un utilisateur
+ * en piochant grid_size² paris du pool partagé du groupe,
  * en excluant les paris qui ciblent cet utilisateur.
  */
 export async function generateGridFromPool(
   userId: string,
   groupId: string
 ): Promise<GeneratedGrid> {
+  // 0. Récupérer les paramètres du groupe
+  const { data: group } = await supabase
+    .from('groups')
+    .select('grid_size')
+    .eq('id', groupId)
+    .single()
+
+  const gridSize = group?.grid_size ?? 3
+  const cellCount = gridSize * gridSize
+
   // 1. Récupérer tous les paris du groupe sauf ceux qui ciblent l'utilisateur
   const { data: proposals, error: proposalsError } = await supabase
     .from('proposals')
@@ -52,11 +63,11 @@ export async function generateGridFromPool(
     .eq('is_approved', true)
 
   if (proposalsError) throw new Error('Erreur lecture pool : ' + proposalsError.message)
-  if (!proposals || proposals.length < 9)
-    throw new Error('Pas assez de paris approuvés dans le pool (minimum 9 requis)')
+  if (!proposals || proposals.length < cellCount)
+    throw new Error(`Pas assez de paris approuvés dans le pool (minimum ${cellCount} requis)`)
 
-  // 2. Mélanger et prendre 9
-  const picked = shuffle(proposals).slice(0, 9)
+  // 2. Mélanger et prendre cellCount
+  const picked = shuffle(proposals).slice(0, cellCount)
 
   // 3. Créer la grille
   const weekStart = currentWeekStart()
@@ -88,6 +99,9 @@ export async function generateGridFromPool(
     .select()
 
   if (cellsError || !cells) throw new Error('Erreur insertion cases : ' + cellsError?.message)
+
+  // Générer les suggestions de défis pour la semaine (idempotent)
+  await generateGroupSuggestions(groupId, weekStart)
 
   return { grid, cells }
 }

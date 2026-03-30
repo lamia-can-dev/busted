@@ -5,7 +5,7 @@ import { getSession } from './lib/session'
 import CreateGroup from './pages/CreateGroup'
 import Onboarding from './pages/Onboarding'
 import Game from './pages/Game'
-import Feed from './pages/Feed'
+import Activity from './pages/Activity'
 import Proposals from './pages/Proposals'
 import Leaderboard from './pages/Leaderboard'
 import NavBar from './components/NavBar'
@@ -36,7 +36,7 @@ export default function App() {
         <Route path="/" element={<CreateGroup />} />
         <Route path="/join/:invite_code" element={<Onboarding />} />
         <Route path="/game" element={<><Game /><NavBar /></>} />
-        <Route path="/feed" element={<><Feed /><NavBar /></>} />
+        <Route path="/activity" element={<><Activity /><NavBar /></>} />
         <Route path="/proposals" element={<><Proposals /><NavBar /></>} />
         <Route path="/leaderboard" element={<><Leaderboard /><NavBar /></>} />
       </Routes>

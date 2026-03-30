@@ -65,6 +65,16 @@ Deno.serve(async (req: Request) => {
     const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
     const admin = createClient(supabaseUrl, serviceRoleKey)
 
+    // Récupérer les paramètres du groupe
+    const { data: groupData } = await admin
+      .from('groups')
+      .select('grid_size')
+      .eq('id', group_id)
+      .single()
+
+    const gridSize: number = groupData?.grid_size ?? 3
+    const cellCount = gridSize * gridSize
+
     // Récupérer tous les membres du groupe
     const { data: allMembers, error: membersError } = await admin
       .from('users')
@@ -112,13 +122,13 @@ Deno.serve(async (req: Request) => {
       const eligible = (allProposals as ProposalRow[]).filter(
         (p) => p.target_user_id !== owner.id
       )
-      if (eligible.length < 9) {
+      if (eligible.length < cellCount) {
         return Response.json(
-          { error: `Pas assez de paris pour ${owner.username} (${eligible.length}/9 disponibles)` },
+          { error: `Pas assez de paris pour ${owner.username} (${eligible.length}/${cellCount} disponibles)` },
           { status: 422 }
         )
       }
-      const picked = shuffle(eligible).slice(0, 9)
+      const picked = shuffle(eligible).slice(0, cellCount)
       gridsToInsert.push({
         owner_user_id: owner.id,
         group_id,

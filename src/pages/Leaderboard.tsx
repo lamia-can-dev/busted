@@ -4,6 +4,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { supabase } from '../lib/supabase'
 import { getSession } from '../lib/session'
 import type { User } from '../../supabase/types'
+import Logo from '../components/Logo'
 
 // ─── Types ────────────────────────────────────────────────────
 
@@ -227,7 +228,7 @@ export default function Leaderboard() {
     <div style={styles.page}>
       {/* Header */}
       <header style={styles.header}>
-        <h1 style={styles.title}>Classement</h1>
+        <div style={{ marginBottom: '1.25rem' }}><Logo variant="full" /></div>
         <div style={styles.countdown}>
           <span style={styles.countdownLabel}>Fin de semaine dans</span>
           <span style={styles.countdownValue}>{countdown}</span>
@@ -311,7 +312,7 @@ export default function Leaderboard() {
                       <DetailRow
                         label="Cases validées"
                         value={player.validatedCells}
-                        color="#888"
+                        color="var(--color-text-secondary)"
                       />
                       {player.firstBingoAt && (
                         <div style={styles.detailRow}>
@@ -349,24 +350,25 @@ function DetailRow({ label, value, color }: { label: string; value: number; colo
 const styles: Record<string, React.CSSProperties> = {
   page: {
     minHeight: '100vh',
-    background: '#0f0f0f',
+    background: 'var(--color-bg)',
     paddingBottom: '6rem',
-    fontFamily: 'system-ui, sans-serif',
   },
   header: {
-    padding: '1.5rem 1rem 1.25rem',
+    padding: '1.5rem 1.25rem 1.25rem',
     maxWidth: '560px',
     margin: '0 auto',
   },
   title: {
-    color: '#fff',
-    fontSize: '1.5rem',
-    fontWeight: 700,
+    fontFamily: 'var(--font-title)',
+    fontWeight: 900,
+    fontSize: '1.375rem',
+    color: 'var(--color-text-primary)',
+    letterSpacing: '-0.5px',
     margin: '0 0 1rem',
   },
   countdown: {
-    background: '#1a1a1a',
-    border: '1px solid #2a2a2a',
+    background: 'var(--color-surface)',
+    border: '1px solid var(--color-border)',
     borderRadius: '1rem',
     padding: '0.875rem 1.25rem',
     display: 'flex',
@@ -375,14 +377,15 @@ const styles: Record<string, React.CSSProperties> = {
     gap: '0.25rem',
   },
   countdownLabel: {
-    color: '#555',
-    fontSize: '0.75rem',
-    fontWeight: 500,
+    fontFamily: 'var(--font-body)',
+    fontWeight: 400,
+    color: 'var(--color-text-secondary)',
+    fontSize: '0.875rem',
     textTransform: 'uppercase',
     letterSpacing: '0.06em',
   },
   countdownValue: {
-    color: '#fff',
+    color: 'var(--color-text-primary)',
     fontSize: '1.5rem',
     fontWeight: 700,
     fontVariantNumeric: 'tabular-nums',
@@ -391,20 +394,20 @@ const styles: Record<string, React.CSSProperties> = {
   list: {
     maxWidth: '560px',
     margin: '0 auto',
-    padding: '0 1rem',
+    padding: '0 1.25rem',
     display: 'flex',
     flexDirection: 'column',
     gap: '0.75rem',
   },
   card: {
-    border: '1px solid #2a2a2a',
-    borderRadius: '1.25rem',
-    padding: '1rem 1.25rem',
+    border: '1px solid var(--color-border)',
+    borderRadius: '14px',
+    padding: '18px',
     cursor: 'pointer',
     userSelect: 'none',
   },
   cardSelf: {
-    borderColor: '#6c47ff',
+    borderColor: 'var(--color-indigo)',
   },
   cardMain: {
     display: 'flex',
@@ -427,8 +430,8 @@ const styles: Record<string, React.CSSProperties> = {
     width: '40px',
     height: '40px',
     borderRadius: '50%',
-    background: '#6c47ff',
-    color: '#fff',
+    background: 'var(--color-indigo)',
+    color: 'var(--color-text-primary)',
     fontSize: '1rem',
     fontWeight: 700,
     display: 'flex',
@@ -443,24 +446,25 @@ const styles: Record<string, React.CSSProperties> = {
     gap: '0.15rem',
   },
   username: {
-    color: '#fff',
-    fontSize: '1rem',
-    fontWeight: 600,
+    fontFamily: 'var(--font-body)',
+    fontWeight: 700,
+    fontSize: '0.9375rem',
+    color: 'var(--color-text-primary)',
     display: 'flex',
     alignItems: 'center',
     gap: '0.5rem',
   },
   youBadge: {
-    background: '#1a1430',
-    color: '#6c47ff',
-    fontSize: '0.65rem',
+    background: 'var(--color-surface)',
+    color: 'var(--color-indigo)',
+    fontSize: '0.75rem',
     fontWeight: 700,
     padding: '0.1rem 0.4rem',
     borderRadius: '999px',
-    border: '1px solid #6c47ff',
+    border: '1px solid var(--color-indigo)',
   },
   score: {
-    color: '#fff',
+    color: 'var(--color-text-primary)',
     fontSize: '1.1rem',
     fontWeight: 700,
     fontVariantNumeric: 'tabular-nums',
@@ -468,7 +472,7 @@ const styles: Record<string, React.CSSProperties> = {
   detail: {
     marginTop: '0.875rem',
     paddingTop: '0.875rem',
-    borderTop: '1px solid #2a2a2a',
+    borderTop: '1px solid var(--color-border)',
     display: 'flex',
     flexDirection: 'column',
     gap: '0.5rem',
@@ -479,18 +483,22 @@ const styles: Record<string, React.CSSProperties> = {
     gap: '0.5rem',
   },
   detailLabel: {
-    color: '#666',
+    fontFamily: 'var(--font-body)',
+    fontWeight: 400,
+    color: 'var(--color-text-secondary)',
     fontSize: '0.85rem',
     flex: 1,
   },
   detailCount: {
-    color: '#555',
+    color: 'var(--color-text-secondary)',
     fontSize: '0.85rem',
     minWidth: '2rem',
     textAlign: 'right',
   },
   hint: {
-    color: '#555',
+    fontFamily: 'var(--font-body)',
+    fontWeight: 400,
+    color: 'var(--color-text-secondary)',
     fontSize: '0.85rem',
     textAlign: 'center',
     marginTop: '2rem',

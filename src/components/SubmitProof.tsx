@@ -1,4 +1,5 @@
 import { useRef, useState } from 'react'
+import { compressImage } from '../lib/compressImage'
 import { motion, AnimatePresence } from 'framer-motion'
 import { supabase } from '../lib/supabase'
 import { getSession } from '../lib/session'
@@ -19,17 +20,23 @@ export default function SubmitProof({ cell, onClose, onSubmitted }: Props) {
   const [imageFile, setImageFile] = useState<File | null>(null)
   const [imagePreview, setImagePreview] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
+  const [compressing, setCompressing] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState(false)
-  const fileInputRef = useRef<HTMLInputElement>(null)
+  const cameraInputRef = useRef<HTMLInputElement>(null)
+  const galleryInputRef = useRef<HTMLInputElement>(null)
 
   const canSubmit = proofText.trim().length > 0 || imageFile !== null
 
-  function handleImageChange(e: React.ChangeEvent<HTMLInputElement>) {
+  async function handleImageChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
     if (!file) return
-    setImageFile(file)
-    setImagePreview(URL.createObjectURL(file))
+    setCompressing(true)
+    const blob = await compressImage(file)
+    const compressed = new File([blob], 'photo.jpg', { type: 'image/jpeg' })
+    setImageFile(compressed)
+    setImagePreview(URL.createObjectURL(blob))
+    setCompressing(false)
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -133,13 +140,8 @@ export default function SubmitProof({ cell, onClose, onSubmitted }: Props) {
                 {/* Image proof */}
                 <div style={styles.field}>
                   <label style={styles.label}>Photo</label>
-                  <input
-                    ref={fileInputRef}
-                    type="file"
-                    accept="image/*"
-                    onChange={handleImageChange}
-                    style={{ display: 'none' }}
-                  />
+                  <input ref={cameraInputRef} type="file" accept="image/*" capture="user" onChange={handleImageChange} style={{ display: 'none' }} />
+                  <input ref={galleryInputRef} type="file" accept="image/*" onChange={handleImageChange} style={{ display: 'none' }} />
                   {imagePreview ? (
                     <div style={styles.imagePreviewWrapper}>
                       <img src={imagePreview} style={styles.imagePreview} alt="preuve" />
@@ -151,18 +153,31 @@ export default function SubmitProof({ cell, onClose, onSubmitted }: Props) {
                         ✕
                       </button>
                     </div>
+                  ) : compressing ? (
+                    <div style={styles.compressingLabel}>Compression en cours...</div>
                   ) : (
-                    <button
-                      type="button"
-                      onClick={() => fileInputRef.current?.click()}
-                      style={styles.addImageBtn}
-                    >
-                      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                        <rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/>
-                        <polyline points="21 15 16 10 5 21"/>
-                      </svg>
-                      Ajouter une photo
-                    </button>
+                    <div style={{ display: 'flex', gap: '0.5rem' }}>
+                      <button
+                        type="button"
+                        onClick={() => cameraInputRef.current?.click()}
+                        style={styles.addImageBtn}
+                      >
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                          <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/>
+                        </svg>
+                        Prendre une photo
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => galleryInputRef.current?.click()}
+                        style={styles.addImageBtn}
+                      >
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                          <rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/>
+                        </svg>
+                        Galerie
+                      </button>
+                    </div>
                   )}
                 </div>
 
@@ -197,7 +212,7 @@ const styles: Record<string, React.CSSProperties> = {
     alignItems: 'flex-end',
   },
   sheet: {
-    background: '#1a1a1a',
+    background: 'var(--color-surface)',
     borderRadius: '1.5rem 1.5rem 0 0',
     padding: '1rem 1.5rem 2.5rem',
     width: '100%',
@@ -208,27 +223,31 @@ const styles: Record<string, React.CSSProperties> = {
   handle: {
     width: '40px',
     height: '4px',
-    background: '#333',
+    background: 'var(--color-border)',
     borderRadius: '2px',
     margin: '0 auto 1.25rem',
   },
   cellPreview: {
-    background: '#111',
+    background: 'var(--color-bg)',
     borderRadius: '0.875rem',
     padding: '0.875rem 1rem',
     marginBottom: '1.25rem',
   },
   targetLabel: {
-    color: '#555',
-    fontSize: '0.72rem',
+    fontFamily: 'var(--font-body)',
+    fontWeight: 400,
+    color: 'var(--color-text-secondary)',
+    fontSize: '0.875rem',
     textTransform: 'uppercase',
     letterSpacing: '0.07em',
     display: 'block',
     marginBottom: '0.3rem',
   },
   cellContent: {
-    color: '#ccc',
-    fontSize: '0.95rem',
+    fontFamily: 'var(--font-body)',
+    fontWeight: 400,
+    fontSize: '0.875rem',
+    color: 'var(--color-text-secondary)',
     fontStyle: 'italic',
     margin: 0,
     lineHeight: 1.4,
@@ -244,41 +263,53 @@ const styles: Record<string, React.CSSProperties> = {
     gap: '0.5rem',
   },
   label: {
-    color: '#888',
-    fontSize: '0.8rem',
-    fontWeight: 500,
+    fontFamily: 'var(--font-body)',
+    fontWeight: 400,
+    color: 'var(--color-text-secondary)',
+    fontSize: '0.875rem',
     textTransform: 'uppercase',
     letterSpacing: '0.06em',
   },
   textarea: {
-    background: '#111',
-    border: '1px solid #333',
+    background: 'var(--color-bg)',
+    border: '1px solid var(--color-border)',
     borderRadius: '0.75rem',
-    color: '#fff',
+    color: 'var(--color-text-primary)',
     fontSize: '0.95rem',
     padding: '0.75rem 1rem',
     resize: 'none',
     lineHeight: 1.5,
     outline: 'none',
-    fontFamily: 'system-ui, sans-serif',
+    fontFamily: 'var(--font-body)',
   },
   counter: {
-    color: '#555',
-    fontSize: '0.75rem',
+    color: 'var(--color-text-secondary)',
+    fontSize: '0.875rem',
     alignSelf: 'flex-end',
   },
+  compressingLabel: {
+    fontFamily: 'var(--font-body)',
+    fontWeight: 400,
+    color: 'var(--color-text-secondary)',
+    fontSize: '0.875rem',
+    padding: '0.75rem 0',
+    textAlign: 'center' as const,
+  },
   addImageBtn: {
-    background: '#111',
-    border: '1px dashed #333',
+    background: 'var(--color-bg)',
+    border: '1px dashed var(--color-border)',
     borderRadius: '0.75rem',
-    color: '#666',
-    fontSize: '0.9rem',
+    color: 'var(--color-text-secondary)',
+    fontFamily: 'var(--font-body)',
+    fontWeight: 700,
+    fontSize: '0.9375rem',
     padding: '0.75rem 1rem',
     cursor: 'pointer',
     display: 'flex',
     alignItems: 'center',
     gap: '0.5rem',
     justifyContent: 'center',
+    minHeight: '44px',
   },
   imagePreviewWrapper: {
     position: 'relative',
@@ -296,7 +327,7 @@ const styles: Record<string, React.CSSProperties> = {
     top: '0.5rem',
     right: '0.5rem',
     background: 'rgba(0,0,0,0.6)',
-    color: '#fff',
+    color: 'var(--color-text-primary)',
     border: 'none',
     borderRadius: '50%',
     width: '28px',
@@ -308,18 +339,20 @@ const styles: Record<string, React.CSSProperties> = {
     justifyContent: 'center',
   },
   submitBtn: {
-    background: '#6c47ff',
-    color: '#fff',
+    background: 'var(--color-indigo)',
+    color: '#ffffff',
     border: 'none',
-    borderRadius: '0.75rem',
+    borderRadius: '20px',
     padding: '0.875rem',
-    fontSize: '1rem',
-    fontWeight: 600,
+    fontFamily: 'var(--font-body)',
+    fontWeight: 700,
+    fontSize: '0.9375rem',
     cursor: 'pointer',
+    minHeight: '44px',
   },
   submitBtnDisabled: {
-    background: '#2a2a2a',
-    color: '#555',
+    background: 'var(--color-border)',
+    color: 'var(--color-text-secondary)',
     cursor: 'not-allowed',
   },
   error: {

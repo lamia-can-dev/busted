@@ -1,3 +1,23 @@
+:root {
+  --font-title: 'Unbounded', sans-serif;
+  --font-body: 'Figtree', sans-serif;
+
+  --color-bg: #0F0F1A;
+  --color-surface: #1A1A2E;
+  --color-border: #3A3A5A;
+
+  --color-indigo: #4361EE;
+  --color-indigo-light: #A5B4FC;
+  --color-indigo-gradient-start: #A5B4FC;
+  --color-indigo-gradient-end: #4361EE;
+
+  --color-rose: #FF5FCC;
+  --color-rose-dark: #2D0F2A;
+
+  --color-text-primary: #F0F0FF;
+  --color-text-secondary: #7878AA;
+}
+
 *, *::before, *::after {
   box-sizing: border-box;
   margin: 0;
@@ -5,7 +25,17 @@
 }
 
 body {
-  font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-family: var(--font-body);
+  background: var(--color-bg);
+  color: var(--color-text-primary);
   line-height: 1.5;
   -webkit-font-smoothing: antialiased;
+}
+
+#root {
+  background: var(--color-bg);
+}
+
+h1, h2 {
+  font-family: var(--font-title);
 }

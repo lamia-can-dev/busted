@@ -38,6 +38,9 @@ CREATE TABLE cells (
   grid_id          uuid NOT NULL REFERENCES grids(id) ON DELETE CASCADE,
   target_user_id   uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   content          text,
+  position         integer NOT NULL DEFAULT 0,
+  status           text NOT NULL DEFAULT 'unchecked'
+                     CHECK (status IN ('unchecked','pending_confirmation','pending_vote','busted','rejected')),
   is_auto_generated boolean NOT NULL DEFAULT false,
   created_at       timestamptz NOT NULL DEFAULT now()
 );
