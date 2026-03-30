@@ -39,16 +39,8 @@ export default function ProposeCell({ onClose }: Props) {
     async function loadSuggestions() {
       const weekStart = currentWeekStart()
 
-      // Si aucune suggestion n'existe pour ce groupe cette semaine, les générer
-      const { count } = await supabase
-        .from('suggestions')
-        .select('id', { count: 'exact', head: true })
-        .eq('group_id', session!.groupId)
-        .gte('created_at', weekStart)
-
-      if ((count ?? 0) === 0) {
-        await generateGroupSuggestions(session!.groupId, weekStart)
-      }
+      // Additive: generates only for members without suggestions this week
+      await generateGroupSuggestions(session!.groupId, weekStart)
 
       // Charger les suggestions disponibles pour cette cible
       const { data } = await supabase

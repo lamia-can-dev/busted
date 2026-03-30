@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { makeQueryBuilder } from '../test/supabaseMock'
 import { supabase } from '../lib/supabase'
@@ -12,6 +12,11 @@ vi.mock('../lib/supabase', () => ({
 
 vi.mock('../lib/session', () => ({
   getSession: vi.fn(),
+}))
+
+vi.mock('../lib/suggestChallenges', () => ({
+  currentWeekStart: vi.fn().mockReturnValue('2026-03-30'),
+  generateGroupSuggestions: vi.fn().mockResolvedValue(undefined),
 }))
 
 import { getSession } from '../lib/session'

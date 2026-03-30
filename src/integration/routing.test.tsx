@@ -14,6 +14,7 @@ vi.mock('../lib/supabase', () => ({
   supabase: {
     from: vi.fn(),
     channel: vi.fn(),
+    rpc: vi.fn(),
     auth: {
       getSession: vi.fn(),
       refreshSession: vi.fn(),
@@ -36,7 +37,8 @@ function setupDefaultMocks() {
   vi.mocked(supabase.auth.getSession).mockResolvedValue({ data: { session: null } } as never)
   vi.mocked(supabase.auth.refreshSession).mockResolvedValue({ data: {}, error: null } as never)
   vi.mocked(supabase.from).mockReturnValue(makeQueryBuilder({ data: [], error: null }) as ReturnType<typeof supabase.from>)
-  vi.mocked(supabase.channel).mockReturnValue(makeChannelMock() as ReturnType<typeof supabase.channel>)
+  vi.mocked(supabase.channel).mockReturnValue(makeChannelMock() as unknown as ReturnType<typeof supabase.channel>)
+  vi.mocked(supabase.rpc).mockResolvedValue({ data: [], error: null } as never)
 }
 
 function navigateTo(path: string) {
@@ -68,7 +70,8 @@ describe('App routing — unauthenticated', () => {
   it('renders Onboarding at /join/:code', async () => {
     navigateTo('/join/ABC123')
     render(<App />)
-    await screen.findByText('Rejoindre le groupe')
+    // Onboarding page shows Busted logo and username input
+    await screen.findByPlaceholderText(/nico_le_roi/i)
   })
 
   it('redirects /game to / when no session', async () => {
@@ -79,8 +82,8 @@ describe('App routing — unauthenticated', () => {
     expect(screen.getByPlaceholderText(/les potes du jeudi/i)).toBeInTheDocument()
   })
 
-  it('redirects /feed to / when no session', async () => {
-    navigateTo('/feed')
+  it('redirects /activity to / when no session', async () => {
+    navigateTo('/activity')
     render(<App />)
     await screen.findByText('Busted')
   })
@@ -120,30 +123,31 @@ describe('App routing — authenticated', () => {
     navigateTo('/game')
     render(<App />)
     await screen.findByText('Grille')
-    expect(screen.getByText('Feed')).toBeInTheDocument()
+    expect(screen.getByText('Activité')).toBeInTheDocument()
     expect(screen.getByText('Votes')).toBeInTheDocument()
     expect(screen.getByText('Classement')).toBeInTheDocument()
   })
 
-  it('renders Feed + NavBar at /feed', async () => {
-    navigateTo('/feed')
+  it('renders Activity + NavBar at /activity', async () => {
+    navigateTo('/activity')
     render(<App />)
-    // "Feed" appears in both the page <h1> and the NavBar tab — assert at least one
-    await screen.findAllByText('Feed')
-    expect(screen.getByText('Grille')).toBeInTheDocument()
+    // Activity page renders with NavBar
+    await screen.findByText('Grille')
+    expect(screen.getByText('Activité')).toBeInTheDocument()
   })
 
   it('renders Proposals + NavBar at /proposals', async () => {
     navigateTo('/proposals')
     render(<App />)
-    await screen.findByText('Pool de paris')
+    // Proposals page renders - it shows "En attente" tab
+    await screen.findByText('En attente')
     expect(screen.getByText('Grille')).toBeInTheDocument()
   })
 
   it('renders Leaderboard + NavBar at /leaderboard', async () => {
     navigateTo('/leaderboard')
     render(<App />)
-    // "Classement" appears in both the page <h1> and NavBar — assert at least one
+    // "Classement" appears in NavBar
     await screen.findAllByText('Classement')
     expect(screen.getByText('Grille')).toBeInTheDocument()
   })

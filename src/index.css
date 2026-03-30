@@ -4,7 +4,7 @@
 
   --color-bg: #0F0F1A;
   --color-surface: #1A1A2E;
-  --color-border: #3A3A5A;
+  --color-border: #2A2A4A;
 
   --color-indigo: #4361EE;
   --color-indigo-light: #A5B4FC;
@@ -15,7 +15,7 @@
   --color-rose-dark: #2D0F2A;
 
   --color-text-primary: #F0F0FF;
-  --color-text-secondary: #7878AA;
+  --color-text-secondary: #555577;
 }
 
 *, *::before, *::after {

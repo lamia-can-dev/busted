@@ -3,17 +3,24 @@ import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import { makeQueryBuilder, makeChannelMock } from '../test/supabaseMock'
+// userEvent already imported above
 import { supabase } from '../lib/supabase'
 
 vi.mock('../lib/supabase', () => ({
   supabase: {
     from: vi.fn(),
     channel: vi.fn(),
+    rpc: vi.fn(),
   },
 }))
 
 vi.mock('../lib/session', () => ({
   getSession: vi.fn(),
+}))
+
+vi.mock('../lib/suggestChallenges', () => ({
+  currentWeekStart: vi.fn().mockReturnValue('2026-03-24'),
+  generateGroupSuggestions: vi.fn().mockResolvedValue(undefined),
 }))
 
 import { getSession } from '../lib/session'
@@ -53,7 +60,8 @@ function makeProposal(overrides: Record<string, unknown> = {}) {
 beforeEach(() => {
   vi.clearAllMocks()
   localStorage.clear()
-  vi.mocked(supabase.channel).mockReturnValue(makeChannelMock() as ReturnType<typeof supabase.channel>)
+  vi.mocked(supabase.channel).mockReturnValue(makeChannelMock() as unknown as ReturnType<typeof supabase.channel>)
+  vi.mocked(supabase.rpc).mockResolvedValue({ data: [{ vote_count: 2, is_approved: false }], error: null } as never)
 })
 
 // ─── Vote tracking (localStorage) ─────────────────────────────
@@ -111,12 +119,13 @@ describe('Proposals — rendering', () => {
 
   it('renders a pending proposal card', async () => {
     vi.mocked(getSession).mockReturnValue(mockSession)
-    vi.mocked(supabase.from).mockReturnValue(
-      makeQueryBuilder({ data: [makeProposal()], error: null }) as ReturnType<typeof supabase.from>
-    )
+    vi.mocked(supabase.from).mockImplementation((table: string) => {
+      if (table === 'proposals') return makeQueryBuilder({ data: [makeProposal()], error: null }) as ReturnType<typeof supabase.from>
+      return makeQueryBuilder({ data: [], error: null }) as ReturnType<typeof supabase.from>
+    })
     render(<MemoryRouter><Proposals /></MemoryRouter>)
-    await screen.findByText('"Va faire du sport"')
-    expect(screen.getByText('Alice')).toBeInTheDocument()
+    await screen.findByText('Alice')
+    expect(screen.getByText(/Va faire du sport/)).toBeInTheDocument()
     expect(screen.getByText(/proposé par Bob/)).toBeInTheDocument()
   })
 
@@ -126,17 +135,18 @@ describe('Proposals — rendering', () => {
       makeQueryBuilder({ data: [makeProposal({ vote_count: 2 })], error: null }) as ReturnType<typeof supabase.from>
     )
     render(<MemoryRouter><Proposals /></MemoryRouter>)
-    await screen.findByText('2 / 3 votes')
+    await screen.findByText('2 / 1 votes')
   })
 
-  it('shows "Approuvées" section for approved proposals', async () => {
+  it('shows "Validées" section for approved proposals', async () => {
     vi.mocked(getSession).mockReturnValue(mockSession)
     vi.mocked(supabase.from).mockReturnValue(
       makeQueryBuilder({ data: [makeProposal({ is_approved: true, vote_count: 3 })], error: null }) as ReturnType<typeof supabase.from>
     )
     render(<MemoryRouter><Proposals /></MemoryRouter>)
-    await screen.findByText(/approuvées/i)
-    await screen.findByText('Approuvée ✓')
+    // Click the Validées tab to see approved proposals
+    await userEvent.click(await screen.findByText('Validées'))
+    await screen.findByText('Validé ✓')
   })
 
   it('shows "Ma proposition" badge for own proposals', async () => {
@@ -177,12 +187,12 @@ describe('Proposals — voting', () => {
       makeQueryBuilder({ data: [makeProposal({ vote_count: 1 })], error: null }) as ReturnType<typeof supabase.from>
     )
     render(<MemoryRouter><Proposals /></MemoryRouter>)
-    await screen.findByText('1 / 3 votes')
+    await screen.findByText('1 / 1 votes')
 
     await userEvent.click(screen.getByRole('button', { name: 'Voter' }))
 
     // Optimistic update: vote_count should be 2
-    await screen.findByText('2 / 3 votes')
+    await screen.findByText('2 / 1 votes')
   })
 
   it('marks id as voted in localStorage after clicking vote', async () => {
@@ -203,6 +213,7 @@ describe('Proposals — voting', () => {
     vi.mocked(supabase.from).mockReturnValue(
       makeQueryBuilder({ data: [makeProposal({ vote_count: 2 })], error: null }) as ReturnType<typeof supabase.from>
     )
+    vi.mocked(supabase.rpc).mockResolvedValue({ data: [{ vote_count: 3, is_approved: true }], error: null } as never)
     render(<MemoryRouter><Proposals /></MemoryRouter>)
     await screen.findByRole('button', { name: 'Voter' })
     await userEvent.click(screen.getByRole('button', { name: 'Voter' }))
@@ -211,24 +222,19 @@ describe('Proposals — voting', () => {
 
   it('rolls back vote on DB error', async () => {
     vi.mocked(getSession).mockReturnValue(mockSession)
-    let callCount = 0
-    vi.mocked(supabase.from).mockImplementation(() => {
-      callCount++
-      if (callCount === 1) {
-        // Initial load succeeds
-        return makeQueryBuilder({ data: [makeProposal({ vote_count: 1 })], error: null }) as ReturnType<typeof supabase.from>
-      }
-      // Vote update fails
-      return makeQueryBuilder({ data: null, error: { message: 'DB error' } }) as ReturnType<typeof supabase.from>
-    })
+    vi.mocked(supabase.from).mockReturnValue(
+      makeQueryBuilder({ data: [makeProposal({ vote_count: 1 })], error: null }) as ReturnType<typeof supabase.from>
+    )
+    // RPC call fails
+    vi.mocked(supabase.rpc).mockResolvedValue({ data: null, error: { message: 'DB error' } } as never)
 
     render(<MemoryRouter><Proposals /></MemoryRouter>)
-    await screen.findByText('1 / 3 votes')
+    await screen.findByText('1 / 1 votes')
     await userEvent.click(screen.getByRole('button', { name: 'Voter' }))
 
     // After optimistic update shows 2, rollback returns to 1
     await waitFor(() => {
-      expect(screen.getByText('1 / 3 votes')).toBeInTheDocument()
+      expect(screen.getByText('1 / 1 votes')).toBeInTheDocument()
     })
   })
 })

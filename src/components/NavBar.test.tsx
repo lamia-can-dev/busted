@@ -39,7 +39,7 @@ describe('NavBar', () => {
     vi.mocked(getSession).mockReturnValue(mockSession)
     renderNav()
     expect(screen.getByText('Grille')).toBeInTheDocument()
-    expect(screen.getByText('Feed')).toBeInTheDocument()
+    expect(screen.getByText('Activité')).toBeInTheDocument()
     expect(screen.getByText('Votes')).toBeInTheDocument()
     expect(screen.getByText('Classement')).toBeInTheDocument()
   })
@@ -60,24 +60,13 @@ describe('NavBar', () => {
     })
   })
 
-  it('shows badge when user has pending validations targeting them', async () => {
+  it('shows badge when user has unseen count in localStorage', async () => {
+    localStorage.setItem('busted_unread_count', '3')
     vi.mocked(getSession).mockReturnValue(mockSession)
-    // Return a submission targeting user-1 with no vote from user-1
-    vi.mocked(supabase.from).mockReturnValue(
-      makeQueryBuilder({
-        data: [
-          {
-            id: 'sub-1',
-            cell: { target_user_id: 'user-1' },
-            votes: [],
-          },
-        ],
-        error: null,
-      }) as ReturnType<typeof supabase.from>
-    )
     renderNav('/game')
     await waitFor(() => {
-      expect(screen.getByText('1')).toBeInTheDocument()
+      expect(screen.getByText('3')).toBeInTheDocument()
     })
+    localStorage.removeItem('busted_unread_count')
   })
 })

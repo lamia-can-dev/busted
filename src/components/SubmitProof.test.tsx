@@ -17,6 +17,10 @@ vi.mock('../lib/session', () => ({
   getSession: vi.fn(),
 }))
 
+vi.mock('../lib/compressImage', () => ({
+  compressImage: vi.fn().mockResolvedValue(new Blob(['compressed'], { type: 'image/jpeg' })),
+}))
+
 import { getSession } from '../lib/session'
 import SubmitProof from './SubmitProof'
 
@@ -38,7 +42,7 @@ beforeEach(() => {
     makeQueryBuilder({ data: null, error: null }) as ReturnType<typeof supabase.from>
   )
   vi.mocked(supabase.storage.from).mockReturnValue(
-    makeStorageMock() as ReturnType<typeof supabase.storage.from>
+    makeStorageMock() as unknown as ReturnType<typeof supabase.storage.from>
   )
 })
 
@@ -55,18 +59,19 @@ describe('SubmitProof — rendering', () => {
 
   it('submit button is disabled when no text and no image', () => {
     render(<SubmitProof cell={mockCell} onClose={onClose} onSubmitted={onSubmitted} />)
-    expect(screen.getByRole('button', { name: /soumettre/i })).toBeDisabled()
+    expect(screen.getByRole('button', { name: /soumettre la preuve/i })).toBeDisabled()
   })
 
   it('submit button becomes enabled when text is entered', async () => {
     render(<SubmitProof cell={mockCell} onClose={onClose} onSubmitted={onSubmitted} />)
     await userEvent.type(screen.getByPlaceholderText(/optionnel/i), 'Voici ma preuve')
-    expect(screen.getByRole('button', { name: /soumettre/i })).not.toBeDisabled()
+    expect(screen.getByRole('button', { name: /soumettre la preuve/i })).not.toBeDisabled()
   })
 
   it('shows add photo button initially', () => {
     render(<SubmitProof cell={mockCell} onClose={onClose} onSubmitted={onSubmitted} />)
-    expect(screen.getByText('Ajouter une photo')).toBeInTheDocument()
+    expect(screen.getByText('Prendre une photo')).toBeInTheDocument()
+    expect(screen.getByText('Galerie')).toBeInTheDocument()
   })
 })
 
@@ -74,7 +79,7 @@ describe('SubmitProof — submission', () => {
   it('shows success message after successful text submission', async () => {
     render(<SubmitProof cell={mockCell} onClose={onClose} onSubmitted={onSubmitted} />)
     await userEvent.type(screen.getByPlaceholderText(/optionnel/i), 'Voici ma preuve')
-    await userEvent.click(screen.getByRole('button', { name: /soumettre/i }))
+    await userEvent.click(screen.getByRole('button', { name: /soumettre la preuve/i }))
     await screen.findByText('✓ Preuve envoyée !')
   })
 
@@ -84,7 +89,7 @@ describe('SubmitProof — submission', () => {
     )
     render(<SubmitProof cell={mockCell} onClose={onClose} onSubmitted={onSubmitted} />)
     await userEvent.type(screen.getByPlaceholderText(/optionnel/i), 'Voici ma preuve')
-    await userEvent.click(screen.getByRole('button', { name: /soumettre/i }))
+    await userEvent.click(screen.getByRole('button', { name: /soumettre la preuve/i }))
     await screen.findByText('Tu as déjà soumis une preuve pour cette case.')
   })
 
@@ -102,7 +107,7 @@ describe('SubmitProof — submission', () => {
 
     render(<SubmitProof cell={mockCell} onClose={onClose} onSubmitted={onSubmitted} />)
     await userEvent.type(screen.getByPlaceholderText(/optionnel/i), 'Voici ma preuve')
-    await userEvent.click(screen.getByRole('button', { name: /soumettre/i }))
+    await userEvent.click(screen.getByRole('button', { name: /soumettre la preuve/i }))
     await screen.findByText('Erreur insertion')
   })
 
@@ -110,7 +115,7 @@ describe('SubmitProof — submission', () => {
     vi.mocked(supabase.storage.from).mockReturnValue({
       upload: vi.fn().mockResolvedValue({ error: { message: 'Upload failed' } }),
       getPublicUrl: vi.fn().mockReturnValue({ data: { publicUrl: '' } }),
-    } as ReturnType<typeof supabase.storage.from>)
+    } as unknown as ReturnType<typeof supabase.storage.from>)
 
     // Provide a fake image file
     const file = new File(['image'], 'test.jpg', { type: 'image/jpeg' })
@@ -118,11 +123,12 @@ describe('SubmitProof — submission', () => {
       <SubmitProof cell={mockCell} onClose={onClose} onSubmitted={onSubmitted} />
     )
 
-    const input = container.querySelector('input[type="file"]') as HTMLInputElement
-    await userEvent.upload(input, file)
+    // There are two file inputs (camera + gallery); use the first one
+    const inputs = container.querySelectorAll('input[type="file"]')
+    await userEvent.upload(inputs[0] as HTMLInputElement, file)
     await screen.findByText('✕') // remove button appears after image selected
 
-    await userEvent.click(screen.getByRole('button', { name: /soumettre/i }))
+    await userEvent.click(screen.getByRole('button', { name: /soumettre la preuve/i }))
     await screen.findByText(/erreur upload photo/i)
   })
 
@@ -132,13 +138,13 @@ describe('SubmitProof — submission', () => {
       <SubmitProof cell={mockCell} onClose={onClose} onSubmitted={onSubmitted} />
     )
 
-    const input = container.querySelector('input[type="file"]') as HTMLInputElement
-    await userEvent.upload(input, file)
+    const inputs = container.querySelectorAll('input[type="file"]')
+    await userEvent.upload(inputs[0] as HTMLInputElement, file)
     await screen.findByText('✕')
 
     await userEvent.click(screen.getByText('✕'))
-    expect(screen.getByText('Ajouter une photo')).toBeInTheDocument()
+    expect(screen.getByText('Prendre une photo')).toBeInTheDocument()
     // Submit should be disabled again (no text, no image)
-    expect(screen.getByRole('button', { name: /soumettre/i })).toBeDisabled()
+    expect(screen.getByRole('button', { name: /soumettre la preuve/i })).toBeDisabled()
   })
 })

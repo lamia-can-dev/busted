@@ -39,11 +39,6 @@ const CELL_CONFIG: Record<number, { minHeight: number; fontSize: number }> = {
   5: { minHeight: 54, fontSize: 9 },
 }
 
-function trunc(s: string | null | undefined, max: number): string {
-  if (!s) return '—'
-  return s.length > max ? s.slice(0, max) + '…' : s
-}
-
 // ─── Main ─────────────────────────────────────────────────────
 
 export default function Game() {
@@ -126,9 +121,14 @@ export default function Game() {
       if (!submissionMap.has(s.cell_id)) submissionMap.set(s.cell_id, s as SubmissionData)
     }
 
-    const newCells = (cells ?? []).map((c) => {
+    // Filter out cells targeting the grid owner (shouldn't happen, but safety guard)
+    const safeCells = (cells ?? []).filter((c) => c.target_user_id !== session.userId)
+
+    const newCells = safeCells.map((c) => {
       const submission = submissionMap.get(c.id) ?? null
-      const dbStatus = (c.status ?? 'unchecked') as Cell['status']
+      const rawStatus = (c.status ?? 'unchecked') as string
+      // pending_vote is legacy — now confirmation goes straight to busted
+      const dbStatus = (rawStatus === 'pending_vote' ? 'busted' : rawStatus) as Cell['status']
       // Si la colonne status n'existe pas en DB (undefined→'unchecked') mais qu'une
       // soumission existe, on affiche au moins l'état en attente de validation
       const status: Cell['status'] =
@@ -371,13 +371,13 @@ export default function Game() {
               <div style={styles.inviteCode}>{inviteCode}</div>
               <button
                 onClick={() => {
-                  navigator.clipboard.writeText(`${window.location.origin}/join/${inviteCode}`)
+                  navigator.clipboard.writeText(inviteCode)
                   setCopied(true)
                   setTimeout(() => setCopied(false), 2000)
                 }}
                 style={styles.copyBtn}
               >
-                {copied ? '✓ Lien copié !' : 'Copier le lien'}
+                {copied ? '✓ Code copié !' : 'Copier le code'}
               </button>
             </motion.div>
           </motion.div>

@@ -15,11 +15,17 @@ vi.mock('../lib/supabase', () => ({
   supabase: {
     from: vi.fn(),
     channel: vi.fn(),
+    rpc: vi.fn(),
   },
 }))
 
 vi.mock('../lib/session', () => ({
   getSession: vi.fn(),
+}))
+
+vi.mock('../lib/suggestChallenges', () => ({
+  currentWeekStart: vi.fn().mockReturnValue('2026-03-24'),
+  generateGroupSuggestions: vi.fn().mockResolvedValue(undefined),
 }))
 
 import { getSession } from '../lib/session'
@@ -50,7 +56,8 @@ function renderProposals() {
 beforeEach(() => {
   vi.clearAllMocks()
   vi.mocked(getSession).mockReturnValue(SESSION)
-  vi.mocked(supabase.channel).mockReturnValue(makeChannelMock() as ReturnType<typeof supabase.channel>)
+  vi.mocked(supabase.channel).mockReturnValue(makeChannelMock() as unknown as ReturnType<typeof supabase.channel>)
+  vi.mocked(supabase.rpc).mockResolvedValue({ data: [{ vote_count: 2, is_approved: false }], error: null } as never)
   localStorage.clear()
 })
 
@@ -58,12 +65,13 @@ beforeEach(() => {
 
 describe('Proposals — initial load', () => {
   it('renders proposal content and target username', async () => {
-    vi.mocked(supabase.from).mockReturnValue(
-      makeQueryBuilder({ data: [makeProposal()], error: null }) as ReturnType<typeof supabase.from>
-    )
+    vi.mocked(supabase.from).mockImplementation((table: string) => {
+      if (table === 'proposals') return makeQueryBuilder({ data: [makeProposal()], error: null }) as ReturnType<typeof supabase.from>
+      return makeQueryBuilder({ data: [], error: null }) as ReturnType<typeof supabase.from>
+    })
     renderProposals()
-    await screen.findByText('"Va faire 30 pompes chaque matin"')
-    expect(screen.getByText('Charlie')).toBeInTheDocument()
+    await screen.findByText('Charlie')
+    expect(screen.getByText(/Va faire 30 pompes chaque matin/)).toBeInTheDocument()
     expect(screen.getByText(/proposé par bob/i)).toBeInTheDocument()
   })
 
@@ -72,7 +80,7 @@ describe('Proposals — initial load', () => {
       makeQueryBuilder({ data: [makeProposal()], error: null }) as ReturnType<typeof supabase.from>
     )
     renderProposals()
-    await screen.findByText('1 / 3 votes')
+    await screen.findByText('1 / 1 votes')
   })
 
   it('shows empty state when no proposals', async () => {
@@ -88,32 +96,19 @@ describe('Proposals — initial load', () => {
       makeQueryBuilder({ data: [makeProposal({ is_approved: true, vote_count: 3 })], error: null }) as ReturnType<typeof supabase.from>
     )
     renderProposals()
-    await screen.findByText('Approuvée ✓')
+    // Switch to the Validées tab to see the approved proposal
+    await screen.findByText('Validées')
+    await userEvent.click(screen.getByText('Validées'))
+    await screen.findByText('Validé ✓')
   })
 })
 
 // ─── Voting flow ──────────────────────────────────────────────
 
 describe('Proposals — voting', () => {
-  it('calls proposals update with incremented vote_count', async () => {
-    let updatePayload: unknown
-    let updateEqId: unknown
+  it('calls rpc increment_vote_count on vote', async () => {
     vi.mocked(supabase.from).mockImplementation((table: string) => {
-      if (table === 'proposals') {
-        const b = makeQueryBuilder({ data: [makeProposal()], error: null }) as ReturnType<typeof supabase.from>
-        const origUpdate = (b as Record<string, unknown>).update as (v: unknown) => typeof b
-        ;(b as Record<string, unknown>).update = (v: unknown) => {
-          updatePayload = v
-          const chain = origUpdate(v)
-          const origEq = (chain as Record<string, unknown>).eq as (col: string, val: unknown) => unknown
-          ;(chain as Record<string, unknown>).eq = (col: string, val: unknown) => {
-            if (col === 'id') updateEqId = val
-            return origEq(col, val)
-          }
-          return chain
-        }
-        return b
-      }
+      if (table === 'proposals') return makeQueryBuilder({ data: [makeProposal()], error: null }) as ReturnType<typeof supabase.from>
       return makeQueryBuilder({ data: [], error: null }) as ReturnType<typeof supabase.from>
     })
 
@@ -122,28 +117,29 @@ describe('Proposals — voting', () => {
     await userEvent.click(screen.getByText('Voter'))
 
     await waitFor(() => {
-      expect(updatePayload).toMatchObject({ vote_count: 2, is_approved: false })
-      expect(updateEqId).toBe('prop-1')
+      expect(supabase.rpc).toHaveBeenCalledWith('increment_vote_count', {
+        proposal_id: 'prop-1',
+      })
     })
   })
 
   it('optimistically increments vote count in UI after vote', async () => {
     vi.mocked(supabase.from).mockImplementation((table: string) => {
       if (table === 'proposals') return makeQueryBuilder({ data: [makeProposal()], error: null }) as ReturnType<typeof supabase.from>
-      return makeQueryBuilder({ data: null, error: null }) as ReturnType<typeof supabase.from>
+      return makeQueryBuilder({ data: [], error: null }) as ReturnType<typeof supabase.from>
     })
 
     renderProposals()
-    await screen.findByText('1 / 3 votes')
+    await screen.findByText('1 / 1 votes')
     await userEvent.click(screen.getByText('Voter'))
-    await screen.findByText('2 / 3 votes')
+    await screen.findByText('2 / 1 votes')
   })
 
   it('shows toast when proposal reaches threshold', async () => {
     const proposal = makeProposal({ vote_count: 2 }) // one more vote → approved
     vi.mocked(supabase.from).mockImplementation((table: string) => {
       if (table === 'proposals') return makeQueryBuilder({ data: [proposal], error: null }) as ReturnType<typeof supabase.from>
-      return makeQueryBuilder({ data: null, error: null }) as ReturnType<typeof supabase.from>
+      return makeQueryBuilder({ data: [], error: null }) as ReturnType<typeof supabase.from>
     })
 
     renderProposals()
@@ -155,7 +151,7 @@ describe('Proposals — voting', () => {
   it('shows Déjà voté after voting', async () => {
     vi.mocked(supabase.from).mockImplementation((table: string) => {
       if (table === 'proposals') return makeQueryBuilder({ data: [makeProposal()], error: null }) as ReturnType<typeof supabase.from>
-      return makeQueryBuilder({ data: null, error: null }) as ReturnType<typeof supabase.from>
+      return makeQueryBuilder({ data: [], error: null }) as ReturnType<typeof supabase.from>
     })
 
     renderProposals()
@@ -165,14 +161,17 @@ describe('Proposals — voting', () => {
   })
 
   it('rolls back optimistic update on DB error', async () => {
+    vi.mocked(supabase.rpc).mockResolvedValue({ data: null, error: { message: 'DB error' } } as never)
     vi.mocked(supabase.from).mockImplementation((table: string) => {
-      if (table === 'proposals') return makeQueryBuilder({ data: [makeProposal()], error: { message: 'DB error' } }) as ReturnType<typeof supabase.from>
-      return makeQueryBuilder({ data: null, error: { message: 'DB error' } }) as ReturnType<typeof supabase.from>
+      if (table === 'proposals') return makeQueryBuilder({ data: [makeProposal()], error: null }) as ReturnType<typeof supabase.from>
+      return makeQueryBuilder({ data: [], error: null }) as ReturnType<typeof supabase.from>
     })
 
     renderProposals()
-    // With error, data is null so proposals is empty → no vote button
-    await screen.findByText('Aucun pari pour l\'instant.')
+    await screen.findByText('1 / 1 votes')
+    await userEvent.click(screen.getByText('Voter'))
+    // After error, vote count should roll back to 1
+    await screen.findByText('1 / 1 votes')
   })
 })
 
@@ -187,6 +186,8 @@ describe('Proposals — own proposal', () => {
 
     renderProposals()
     await screen.findByText('Ma proposition')
-    expect(screen.getByText('Ta proposition')).toBeDisabled()
+    // The disabled button shows "Ta proposition" text
+    const btn = screen.getByText('Ta proposition')
+    expect(btn).toBeDisabled()
   })
 })

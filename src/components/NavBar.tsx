@@ -24,6 +24,7 @@ export default function NavBar() {
     { path: '/activity', icon: BellIcon, label: 'Activité' },
     { path: '/proposals', icon: VoteIcon, label: 'Votes' },
     { path: '/leaderboard', icon: TrophyIcon, label: 'Classement' },
+    { path: '/profile', icon: ProfileIcon, label: 'Profil' },
   ]
 
   return (
@@ -86,6 +87,15 @@ function VoteIcon({ active }: { active: boolean }) {
     <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke={active ? 'var(--color-indigo-light)' : 'var(--color-text-secondary)'} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <path d="M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.28a2 2 0 0 0 2-1.7l1.38-9a2 2 0 0 0-2-2.3H14z" />
       <path d="M7 22H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h3" />
+    </svg>
+  )
+}
+
+function ProfileIcon({ active }: { active: boolean }) {
+  return (
+    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke={active ? 'var(--color-indigo-light)' : 'var(--color-text-secondary)'} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
+      <circle cx="12" cy="7" r="4" />
     </svg>
   )
 }

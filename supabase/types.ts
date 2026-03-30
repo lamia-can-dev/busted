@@ -10,7 +10,7 @@ export type Json =
 // Database — racine des types générés
 // ─────────────────────────────────────────────────────────────
 
-export interface Database {
+export type Database = {
   public: {
     Tables: {
       groups: GroupsTable
@@ -28,6 +28,10 @@ export interface Database {
         Args: Record<string, never>
         Returns: string
       }
+      increment_vote_count: {
+        Args: { proposal_id: string }
+        Returns: { vote_count: number; is_approved: boolean }
+      }
     }
     Enums: Record<string, never>
   }
@@ -35,9 +39,11 @@ export interface Database {
 
 // ─────────────────────────────────────────────────────────────
 // Row types (lecture depuis Supabase)
+// NOTE: must be `type` aliases, not `interface`, so they satisfy
+//       Record<string, unknown> in conditional types (TS quirk).
 // ─────────────────────────────────────────────────────────────
 
-export interface Group {
+export type Group = {
   id: string
   name: string
   invite_code: string
@@ -47,7 +53,7 @@ export interface Group {
   duration_days: number
 }
 
-export interface User {
+export type User = {
   id: string
   group_id: string
   username: string
@@ -56,7 +62,7 @@ export interface User {
   created_at: string
 }
 
-export interface Grid {
+export type Grid = {
   id: string
   owner_user_id: string
   group_id: string
@@ -65,7 +71,7 @@ export interface Grid {
   created_at: string
 }
 
-export interface Cell {
+export type Cell = {
   id: string
   grid_id: string
   target_user_id: string
@@ -76,7 +82,7 @@ export interface Cell {
   created_at: string
 }
 
-export interface Submission {
+export type Submission = {
   id: string
   cell_id: string
   submitter_user_id: string
@@ -85,7 +91,7 @@ export interface Submission {
   created_at: string
 }
 
-export interface Vote {
+export type Vote = {
   id: string
   submission_id: string
   voter_user_id: string
@@ -93,7 +99,7 @@ export interface Vote {
   created_at: string
 }
 
-export interface Proposal {
+export type Proposal = {
   id: string
   group_id: string
   proposer_user_id: string
@@ -104,7 +110,7 @@ export interface Proposal {
   created_at: string
 }
 
-export interface Suggestion {
+export type Suggestion = {
   id: string
   group_id: string
   target_user_id: string
@@ -117,7 +123,7 @@ export interface Suggestion {
 // Insert types (création de nouvelles lignes)
 // ─────────────────────────────────────────────────────────────
 
-export interface GroupInsert {
+export type GroupInsert = {
   id?: string
   name: string
   invite_code: string
@@ -127,7 +133,7 @@ export interface GroupInsert {
   duration_days?: number
 }
 
-export interface UserInsert {
+export type UserInsert = {
   id?: string
   group_id: string
   username: string
@@ -136,7 +142,7 @@ export interface UserInsert {
   created_at?: string
 }
 
-export interface GridInsert {
+export type GridInsert = {
   id?: string
   owner_user_id: string
   group_id: string
@@ -145,16 +151,18 @@ export interface GridInsert {
   created_at?: string
 }
 
-export interface CellInsert {
+export type CellInsert = {
   id?: string
   grid_id: string
   target_user_id: string
   content?: string | null
+  position?: number
+  status?: string
   is_auto_generated?: boolean
   created_at?: string
 }
 
-export interface SubmissionInsert {
+export type SubmissionInsert = {
   id?: string
   cell_id: string
   submitter_user_id: string
@@ -163,7 +171,7 @@ export interface SubmissionInsert {
   created_at?: string
 }
 
-export interface VoteInsert {
+export type VoteInsert = {
   id?: string
   submission_id: string
   voter_user_id: string
@@ -171,7 +179,7 @@ export interface VoteInsert {
   created_at?: string
 }
 
-export interface ProposalInsert {
+export type ProposalInsert = {
   id?: string
   group_id: string
   proposer_user_id: string
@@ -182,7 +190,7 @@ export interface ProposalInsert {
   created_at?: string
 }
 
-export interface SuggestionInsert {
+export type SuggestionInsert = {
   id?: string
   group_id: string
   target_user_id: string
@@ -190,8 +198,6 @@ export interface SuggestionInsert {
   is_available?: boolean
   created_at?: string
 }
-
-export type SuggestionUpdate = Partial<SuggestionInsert>
 
 // ─────────────────────────────────────────────────────────────
 // Update types (mise à jour partielle)
@@ -204,20 +210,20 @@ export type CellUpdate = Partial<CellInsert>
 export type SubmissionUpdate = Partial<SubmissionInsert>
 export type VoteUpdate = Partial<VoteInsert>
 export type ProposalUpdate = Partial<ProposalInsert>
-// SuggestionUpdate is defined inline above
+export type SuggestionUpdate = Partial<SuggestionInsert>
 
 // ─────────────────────────────────────────────────────────────
 // Table definitions (utilisés par createClient<Database>)
 // ─────────────────────────────────────────────────────────────
 
-interface GroupsTable {
+type GroupsTable = {
   Row: Group
   Insert: GroupInsert
   Update: GroupUpdate
   Relationships: []
 }
 
-interface UsersTable {
+type UsersTable = {
   Row: User
   Insert: UserInsert
   Update: UserUpdate
@@ -231,7 +237,7 @@ interface UsersTable {
   ]
 }
 
-interface GridsTable {
+type GridsTable = {
   Row: Grid
   Insert: GridInsert
   Update: GridUpdate
@@ -251,7 +257,7 @@ interface GridsTable {
   ]
 }
 
-interface CellsTable {
+type CellsTable = {
   Row: Cell
   Insert: CellInsert
   Update: CellUpdate
@@ -271,7 +277,7 @@ interface CellsTable {
   ]
 }
 
-interface SubmissionsTable {
+type SubmissionsTable = {
   Row: Submission
   Insert: SubmissionInsert
   Update: SubmissionUpdate
@@ -291,7 +297,7 @@ interface SubmissionsTable {
   ]
 }
 
-interface VotesTable {
+type VotesTable = {
   Row: Vote
   Insert: VoteInsert
   Update: VoteUpdate
@@ -311,7 +317,7 @@ interface VotesTable {
   ]
 }
 
-interface ProposalsTable {
+type ProposalsTable = {
   Row: Proposal
   Insert: ProposalInsert
   Update: ProposalUpdate
@@ -337,7 +343,7 @@ interface ProposalsTable {
   ]
 }
 
-interface SuggestionsTable {
+type SuggestionsTable = {
   Row: Suggestion
   Insert: SuggestionInsert
   Update: SuggestionUpdate

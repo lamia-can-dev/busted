@@ -52,7 +52,8 @@ describe('CreateGroup — rendering', () => {
   it('create submit is disabled when group name is empty', () => {
     vi.mocked(getSession).mockReturnValue(null)
     renderPage()
-    expect(screen.getByRole('button', { name: /créer le groupe/i })).toBeDisabled()
+    // Step 1: button text is "Suivant →"
+    expect(screen.getByRole('button', { name: /suivant/i })).toBeDisabled()
   })
 
   it('redirects to /game when session exists', () => {
@@ -85,7 +86,10 @@ describe('CreateGroup — mode toggle', () => {
       error: { message: 'Auth failed' },
     } as never)
     renderPage()
+    // Type name and go to step 2
     await userEvent.type(screen.getByPlaceholderText(/les potes du jeudi/i), 'Mon groupe')
+    await userEvent.click(screen.getByRole('button', { name: /suivant/i }))
+    // Now on step 2, click "Créer le groupe →"
     await userEvent.click(screen.getByRole('button', { name: /créer le groupe/i }))
     await screen.findByText(/auth failed/i)
     await userEvent.click(screen.getByRole('button', { name: 'Rejoindre' }))
@@ -98,7 +102,8 @@ describe('CreateGroup — create flow', () => {
     vi.mocked(getSession).mockReturnValue(null)
     renderPage()
     await userEvent.type(screen.getByPlaceholderText(/les potes du jeudi/i), 'Mon groupe')
-    expect(screen.getByRole('button', { name: /créer le groupe/i })).not.toBeDisabled()
+    // Step 1: "Suivant →" is enabled
+    expect(screen.getByRole('button', { name: /suivant/i })).not.toBeDisabled()
   })
 
   it('shows auth error when signInAnonymously fails', async () => {
@@ -109,6 +114,7 @@ describe('CreateGroup — create flow', () => {
     } as never)
     renderPage()
     await userEvent.type(screen.getByPlaceholderText(/les potes du jeudi/i), 'Mon groupe')
+    await userEvent.click(screen.getByRole('button', { name: /suivant/i }))
     await userEvent.click(screen.getByRole('button', { name: /créer le groupe/i }))
     await screen.findByText(/erreur d'authentification/i)
   })
@@ -120,6 +126,7 @@ describe('CreateGroup — create flow', () => {
     )
     renderPage()
     await userEvent.type(screen.getByPlaceholderText(/les potes du jeudi/i), 'Mon groupe')
+    await userEvent.click(screen.getByRole('button', { name: /suivant/i }))
     await userEvent.click(screen.getByRole('button', { name: /créer le groupe/i }))
     await screen.findByText('DB write failed')
   })
@@ -131,6 +138,7 @@ describe('CreateGroup — create flow', () => {
     )
     renderPage()
     await userEvent.type(screen.getByPlaceholderText(/les potes du jeudi/i), 'Mon groupe')
+    await userEvent.click(screen.getByRole('button', { name: /suivant/i }))
     await userEvent.click(screen.getByRole('button', { name: /créer le groupe/i }))
     // Navigation happens — component doesn't show error
     await waitFor(() => {

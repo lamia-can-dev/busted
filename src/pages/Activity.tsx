@@ -105,7 +105,7 @@ export default function Activity() {
         .from('submissions')
         .select(`
           id, proof_image_url, created_at,
-          cell:cells(content, target_user_id, target:users!target_user_id(id, username)),
+          cell:cells(content, target_user_id, status, target:users!target_user_id(id, username)),
           votes(voter_user_id, is_valid, created_at)
         `)
         .eq('submitter_user_id', session.userId),
@@ -150,6 +150,17 @@ export default function Activity() {
             isRead: seenIds.has(id),
             proofImageUrl: s.proof_image_url,
           })
+        } else if (cellStatus === 'rejected') {
+          const id = `rejected_target_${s.id}`
+          notifs.push({
+            id,
+            type: 'proof_rejected',
+            text: `Tu as refusé la preuve de ${submitter?.username ?? '?'}`,
+            cellContent: cell.content,
+            timestamp: s.created_at,
+            isRead: seenIds.has(id),
+            proofImageUrl: s.proof_image_url,
+          })
         }
       }
     }
@@ -157,7 +168,7 @@ export default function Activity() {
     // Notifications où je suis le soumetteur
     const mySubmissions = (mySubmissionsRes.data ?? []) as any[]
     for (const s of mySubmissions) {
-      const cell = s.cell as { content: string; target_user_id: string; target: { id: string; username: string } | null } | null
+      const cell = s.cell as { content: string; target_user_id: string; status?: string; target: { id: string; username: string } | null } | null
       const votes = (s.votes ?? []) as { voter_user_id: string; is_valid: boolean; created_at: string }[]
       const targetId = cell?.target_user_id ?? null
       const targetVote = votes.find((v) => v.voter_user_id === targetId)
@@ -185,6 +196,18 @@ export default function Activity() {
             proofImageUrl: s.proof_image_url,
           })
         }
+      } else {
+        // No vote yet — show "pending" notification for the submitter
+        const id = `proof_pending_${s.id}`
+        notifs.push({
+          id,
+          type: 'vote_required',
+          text: `Ta preuve pour ${cell?.target?.username ?? '?'} est en attente de validation`,
+          cellContent: cell?.content,
+          timestamp: s.created_at,
+          isRead: seenIds.has(id),
+          proofImageUrl: s.proof_image_url,
+        })
       }
     }
 
@@ -222,22 +245,36 @@ export default function Activity() {
     subscribeRealtime()
   }
 
-  async function handleConfirm(cellId: string, notifId: string) {
+  async function handleConfirm(cellId: string, submissionId: string, notifId: string) {
     setActionLoading(notifId)
-    await supabase.from('cells').update({ status: 'pending_vote' }).eq('id', cellId)
+    await supabase.from('cells').update({ status: 'busted' }).eq('id', cellId)
+    if (session) {
+      await supabase.from('votes').insert({
+        submission_id: submissionId,
+        voter_user_id: session.userId,
+        is_valid: true,
+      })
+    }
     await loadNotifications()
     setActionLoading(null)
   }
 
   async function handleDeny(cellId: string, submissionId: string, notifId: string) {
     setActionLoading(notifId)
-    await supabase.from('cells').update({ status: 'unchecked' }).eq('id', cellId)
-    await supabase.from('submissions').delete().eq('id', submissionId)
+    await supabase.from('cells').update({ status: 'rejected' }).eq('id', cellId)
+    if (session) {
+      await supabase.from('votes').insert({
+        submission_id: submissionId,
+        voter_user_id: session.userId,
+        is_valid: false,
+      })
+    }
     await loadNotifications()
     setActionLoading(null)
   }
 
   function subscribeRealtime() {
+    if (channelRef.current) return
     channelRef.current = supabase
       .channel('activity-realtime')
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'submissions' }, () => loadNotifications())
@@ -307,7 +344,7 @@ export default function Activity() {
                     <button
                       style={styles.confirmBtn}
                       disabled={actionLoading === notif.id}
-                      onClick={() => handleConfirm(notif.cellId!, notif.id)}
+                      onClick={() => handleConfirm(notif.cellId!, notif.submissionId!, notif.id)}
                     >
                       {actionLoading === notif.id ? '...' : 'Oui c\'est vrai 😅'}
                     </button>

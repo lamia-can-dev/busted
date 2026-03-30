@@ -95,30 +95,20 @@ function makeUser(id: string, username: string) {
   return { id, username, avatar_url: null, group_id: 'group-1', onboarding_answers: null, created_at: '' }
 }
 
-function makeCell(gridId: string, ownerUserId: string, content: string, targetUserId: string) {
-  return { grid_id: gridId, content, target_user_id: targetUserId, grid: { owner_user_id: ownerUserId } }
-}
-
-function makeSubmission(content: string, targetUserId: string, isValid: boolean) {
-  return {
-    cell: { content, target_user_id: targetUserId },
-    votes: [{ voter_user_id: targetUserId, is_valid: isValid, created_at: '2026-01-01T10:00:00Z' }],
-  }
+function makeCell(gridId: string, ownerUserId: string, content: string, targetUserId: string, status = 'unchecked') {
+  return { grid_id: gridId, content, target_user_id: targetUserId, status, created_at: '2026-01-01T10:00:00Z', grid: { owner_user_id: ownerUserId } }
 }
 
 function mockLeaderboardData(opts: {
   members?: ReturnType<typeof makeUser>[]
-  submissions?: ReturnType<typeof makeSubmission>[]
   cells?: ReturnType<typeof makeCell>[]
 }) {
   const members = opts.members ?? []
-  const submissions = opts.submissions ?? []
   const cells = opts.cells ?? []
 
   vi.mocked(supabase.from).mockImplementation((table: string) => {
     if (table === 'groups') return makeQueryBuilder({ data: { reveal_at: null }, error: null }) as ReturnType<typeof supabase.from>
     if (table === 'users') return makeQueryBuilder({ data: members, error: null }) as ReturnType<typeof supabase.from>
-    if (table === 'submissions') return makeQueryBuilder({ data: submissions, error: null }) as ReturnType<typeof supabase.from>
     if (table === 'cells') return makeQueryBuilder({ data: cells, error: null }) as ReturnType<typeof supabase.from>
     return makeQueryBuilder({ data: null, error: null }) as ReturnType<typeof supabase.from>
   })
@@ -126,7 +116,7 @@ function mockLeaderboardData(opts: {
 
 beforeEach(() => {
   vi.clearAllMocks()
-  vi.mocked(supabase.channel).mockReturnValue(makeChannelMock() as ReturnType<typeof supabase.channel>)
+  vi.mocked(supabase.channel).mockReturnValue(makeChannelMock() as unknown as ReturnType<typeof supabase.channel>)
 })
 
 // ─── Component ────────────────────────────────────────────────
@@ -193,30 +183,33 @@ describe('Leaderboard — player cards', () => {
 
   it('shows bingo count when player has bingo', async () => {
     vi.mocked(getSession).mockReturnValue(mockSession)
-    const cells = Array.from({ length: 9 }, (_, i) => makeCell('grid-1', 'user-1', `c${i}`, 'user-2'))
-    const submissions = [0, 1, 2].map((i) => makeSubmission(`c${i}`, 'user-2', true))
-    mockLeaderboardData({ members: [makeUser('user-1', 'Alice')], submissions, cells })
+    // First row (positions 0,1,2) are busted => triggers 1 bingo line
+    const cells = Array.from({ length: 9 }, (_, i) =>
+      makeCell('grid-1', 'user-1', `c${i}`, 'user-2', i < 3 ? 'busted' : 'unchecked')
+    )
+    mockLeaderboardData({ members: [makeUser('user-1', 'Alice')], cells })
     render(<MemoryRouter><Leaderboard /></MemoryRouter>)
     await screen.findByText('🎯 1 bingo')
   })
 
   it('shows validated cells count when no bingo', async () => {
     vi.mocked(getSession).mockReturnValue(mockSession)
-    const cells = [makeCell('grid-1', 'user-1', 'c0', 'user-2')]
-    const submissions = [makeSubmission('c0', 'user-2', true)]
-    mockLeaderboardData({ members: [makeUser('user-1', 'Alice')], submissions, cells })
+    // Need a proper 3x3 grid so 1 validated cell doesn't trigger a bingo
+    const cells = Array.from({ length: 9 }, (_, i) =>
+      makeCell('grid-1', 'user-1', `c${i}`, 'user-2', i === 0 ? 'busted' : 'unchecked')
+    )
+    mockLeaderboardData({ members: [makeUser('user-1', 'Alice')], cells })
     render(<MemoryRouter><Leaderboard /></MemoryRouter>)
     await screen.findByText('1 case')
   })
 
   it('shows plural "cases" when validatedCells > 1', async () => {
     vi.mocked(getSession).mockReturnValue(mockSession)
-    const cells = [
-      makeCell('grid-1', 'user-1', 'c0', 'user-2'),
-      makeCell('grid-1', 'user-1', 'c1', 'user-2'),
-    ]
-    const submissions = ['c0', 'c1'].map((c) => makeSubmission(c, 'user-2', true))
-    mockLeaderboardData({ members: [makeUser('user-1', 'Alice')], submissions, cells })
+    // 3x3 grid with 2 busted cells (not forming a line)
+    const cells = Array.from({ length: 9 }, (_, i) =>
+      makeCell('grid-1', 'user-1', `c${i}`, 'user-2', (i === 0 || i === 4) ? 'busted' : 'unchecked')
+    )
+    mockLeaderboardData({ members: [makeUser('user-1', 'Alice')], cells })
     render(<MemoryRouter><Leaderboard /></MemoryRouter>)
     await screen.findByText('2 cases')
   })
@@ -225,20 +218,13 @@ describe('Leaderboard — player cards', () => {
 describe('Leaderboard — sorting', () => {
   it('ranks player with bingo above player with only cells', async () => {
     vi.mocked(getSession).mockReturnValue(mockSession)
-    // user-1 has 1 bingo, user-2 has 2 validated cells but no bingo
+    // user-1 has 1 bingo (first row busted), user-2 has 2 validated cells but no bingo
     const cells = [
-      ...Array.from({ length: 9 }, (_, i) => makeCell('grid-1', 'user-1', `a${i}`, 'user-3')),
-      makeCell('grid-2', 'user-2', 'b0', 'user-3'),
-      makeCell('grid-2', 'user-2', 'b1', 'user-3'),
-    ]
-    const submissions = [
-      ...[0, 1, 2].map((i) => makeSubmission(`a${i}`, 'user-3', true)),
-      makeSubmission('b0', 'user-3', true),
-      makeSubmission('b1', 'user-3', true),
+      ...Array.from({ length: 9 }, (_, i) => makeCell('grid-1', 'user-1', `a${i}`, 'user-3', i < 3 ? 'busted' : 'unchecked')),
+      ...Array.from({ length: 9 }, (_, i) => makeCell('grid-2', 'user-2', `b${i}`, 'user-3', (i === 0 || i === 4) ? 'busted' : 'unchecked')),
     ]
     mockLeaderboardData({
       members: [makeUser('user-2', 'Bob'), makeUser('user-1', 'Alice')],
-      submissions,
       cells,
     })
     render(<MemoryRouter><Leaderboard /></MemoryRouter>)
@@ -249,19 +235,13 @@ describe('Leaderboard — sorting', () => {
 
   it('ranks by validatedCells when both have 0 bingos', async () => {
     vi.mocked(getSession).mockReturnValue(mockSession)
+    // Full 3x3 grids so partial validation doesn't accidentally trigger bingo
     const cells = [
-      makeCell('grid-1', 'user-1', 'a0', 'user-3'),
-      makeCell('grid-2', 'user-2', 'b0', 'user-3'),
-      makeCell('grid-2', 'user-2', 'b1', 'user-3'),
-    ]
-    const submissions = [
-      makeSubmission('a0', 'user-3', true),
-      makeSubmission('b0', 'user-3', true),
-      makeSubmission('b1', 'user-3', true),
+      ...Array.from({ length: 9 }, (_, i) => makeCell('grid-1', 'user-1', `a${i}`, 'user-3', i === 0 ? 'busted' : 'unchecked')),
+      ...Array.from({ length: 9 }, (_, i) => makeCell('grid-2', 'user-2', `b${i}`, 'user-3', (i === 0 || i === 4) ? 'busted' : 'unchecked')),
     ]
     mockLeaderboardData({
       members: [makeUser('user-1', 'Alice'), makeUser('user-2', 'Bob')],
-      submissions,
       cells,
     })
     render(<MemoryRouter><Leaderboard /></MemoryRouter>)

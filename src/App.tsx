@@ -8,6 +8,7 @@ import Game from './pages/Game'
 import Activity from './pages/Activity'
 import Proposals from './pages/Proposals'
 import Leaderboard from './pages/Leaderboard'
+import Profile from './pages/Profile'
 import NavBar from './components/NavBar'
 
 export default function App() {
@@ -39,6 +40,7 @@ export default function App() {
         <Route path="/activity" element={<><Activity /><NavBar /></>} />
         <Route path="/proposals" element={<><Proposals /><NavBar /></>} />
         <Route path="/leaderboard" element={<><Leaderboard /><NavBar /></>} />
+        <Route path="/profile" element={<><Profile /><NavBar /></>} />
       </Routes>
     </BrowserRouter>
   )

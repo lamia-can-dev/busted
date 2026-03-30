@@ -4,27 +4,17 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { supabase } from '../lib/supabase'
 import { getSession } from '../lib/session'
 import type { User } from '../../supabase/types'
+import { checkLines, checkColumns, checkDiagonals } from '../lib/bingoUtils'
 import Logo from '../components/Logo'
 
 // ─── Types ────────────────────────────────────────────────────
-
-interface VoteRow {
-  voter_user_id: string
-  is_valid: boolean
-  created_at: string
-}
-
-interface SubmissionRow {
-  id: string
-  submitter_user_id: string
-  cell: { content: string | null; target_user_id: string } | null
-  votes: VoteRow[]
-}
 
 interface CellRow {
   grid_id: string
   content: string | null
   target_user_id: string
+  status: string
+  created_at: string
   grid: { owner_user_id: string } | null
 }
 
@@ -115,18 +105,18 @@ export default function Leaderboard() {
     if (!session) return
     setLoading(true)
 
-    const [membersRes, submissionsRes, cellsRes] = await Promise.all([
+    const [membersRes, cellsRes] = await Promise.all([
       supabase.from('users').select('*').eq('group_id', session.groupId),
-      supabase.from('submissions').select('cell:cells(content, target_user_id), votes(voter_user_id, is_valid, created_at)'),
-      supabase.from('cells').select('grid_id, content, target_user_id, grid:grids(owner_user_id)').order('position', { ascending: true }),
+      supabase.from('cells')
+        .select('grid_id, content, target_user_id, status, created_at, grid:grids(owner_user_id)')
+        .order('position', { ascending: true }),
     ])
 
-    if (membersRes.error || submissionsRes.error || cellsRes.error || !membersRes.data) {
+    if (membersRes.error || cellsRes.error || !membersRes.data) {
       setLoading(false)
       return
     }
     const members = membersRes.data
-    const submissions = submissionsRes.data
     const allCells = cellsRes.data
 
     // Init score map
@@ -135,51 +125,48 @@ export default function Leaderboard() {
       scoreMap.set(user.id, { user, bingos: 0, validatedCells: 0, firstBingoAt: null, rank: 0 })
     }
 
-    // Paris validés avec leur timestamp de validation
-    const validatedProposals = new Map<string, string>() // key → created_at du vote cible
-    for (const sub of (submissions ?? []) as SubmissionRow[]) {
-      const cellData = sub.cell
-      if (!cellData) continue
-      const targetVote = (sub.votes ?? []).find((v) => v.voter_user_id === cellData.target_user_id)
-      if (targetVote?.is_valid === true) {
-        const key = `${cellData.content}::${cellData.target_user_id}`
-        // Garder le plus récent si doublon
-        if (!validatedProposals.has(key)) {
-          validatedProposals.set(key, targetVote.created_at)
-        }
-      }
-    }
-
-    // Pour chaque membre, compter les cases validées et les lignes bingo
-    // Group by (ownerUserId, gridId) so each grid is checked independently
-    const cellsByGrid = new Map<string, { ownerUserId: string; cells: { content: string | null; target_user_id: string }[] }>()
+    // Group cells by grid and count validated (busted) cells per owner
+    const cellsByGrid = new Map<string, { ownerUserId: string; cells: CellRow[] }>()
     for (const cell of (allCells ?? []) as CellRow[]) {
       const ownerUserId = cell.grid?.owner_user_id
       if (!ownerUserId) continue
       const owner = scoreMap.get(ownerUserId)
       if (!owner) continue
-      const key = `${cell.content}::${cell.target_user_id}`
-      if (validatedProposals.has(key)) owner.validatedCells += 1
+      if (cell.status === 'busted' || cell.status === 'pending_vote') owner.validatedCells += 1
       if (!cellsByGrid.has(cell.grid_id)) cellsByGrid.set(cell.grid_id, { ownerUserId, cells: [] })
-      cellsByGrid.get(cell.grid_id)!.cells.push({ content: cell.content, target_user_id: cell.target_user_id })
+      cellsByGrid.get(cell.grid_id)!.cells.push(cell)
     }
 
-    // Compter les lignes bingo + timestamp du premier bingo
-    const LINES = [[0,1,2],[3,4,5],[6,7,8],[0,3,6],[1,4,7],[2,5,8],[0,4,8],[2,4,6]]
+    // Count bingo lines per grid
     for (const { ownerUserId, cells: gridCells } of cellsByGrid.values()) {
       const owner = scoreMap.get(ownerUserId)
       if (!owner) continue
 
-      for (const line of LINES) {
-        const times = line.map((i) => {
-          const c = gridCells[i]
-          return c ? validatedProposals.get(`${c.content}::${c.target_user_id}`) : undefined
-        })
-        if (times.some((t) => !t)) continue // ligne incomplète
-        // Timestamp de complétion = dernier vote qui a complété la ligne
-        const lineTime = times.reduce((max, t) => (t! > max! ? t! : max!), times[0])!
+      const gridSize = Math.round(Math.sqrt(gridCells.length))
+      if (gridSize * gridSize !== gridCells.length) continue
+
+      const bingoCells = gridCells.map((c) => ({
+        status: (c.status === 'busted' || c.status === 'pending_vote' ? 'busted' : 'unchecked') as 'busted' | 'unchecked',
+      }))
+
+      const allLines: number[][] = []
+      for (const r of checkLines(bingoCells, gridSize)) {
+        allLines.push(Array.from({ length: gridSize }, (_, c) => r * gridSize + c))
+      }
+      for (const c of checkColumns(bingoCells, gridSize)) {
+        allLines.push(Array.from({ length: gridSize }, (_, r) => r * gridSize + c))
+      }
+      const [mainDiag, antiDiag] = checkDiagonals(bingoCells, gridSize)
+      if (mainDiag) allLines.push(Array.from({ length: gridSize }, (_, i) => i * gridSize + i))
+      if (antiDiag) allLines.push(Array.from({ length: gridSize }, (_, i) => i * gridSize + (gridSize - 1 - i)))
+
+      for (const line of allLines) {
+        const lineTime = line.reduce((max, i) => {
+          const t = gridCells[i]?.created_at
+          return t && t > max ? t : max
+        }, '')
         owner.bingos += 1
-        if (!owner.firstBingoAt || lineTime < owner.firstBingoAt) owner.firstBingoAt = lineTime
+        if (lineTime && (!owner.firstBingoAt || lineTime < owner.firstBingoAt)) owner.firstBingoAt = lineTime
       }
     }
 
@@ -215,6 +202,10 @@ export default function Leaderboard() {
   function subscribeRealtime() {
     channelRef.current = supabase
       .channel('leaderboard-realtime')
+      .on('postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'cells' },
+        () => loadScores()
+      )
       .on('postgres_changes',
         { event: 'INSERT', schema: 'public', table: 'votes' },
         () => loadScores()

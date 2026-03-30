@@ -2,7 +2,7 @@
  * Integration — Game page flows
  *
  * Tests complete user interactions across Game + its child modals
- * (ProposeCell, SubmitProof) without mocking those components.
+ * (ProposeCell, CellSheet, ProofSheet) without mocking those components.
  * Only Supabase is mocked at the network boundary.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest'
@@ -26,6 +26,10 @@ vi.mock('../lib/session', () => ({
 
 vi.mock('../lib/generateGrid', () => ({
   generateGridFromPool: vi.fn(),
+}))
+
+vi.mock('../lib/compressImage', () => ({
+  compressImage: vi.fn().mockResolvedValue(new Blob(['compressed'], { type: 'image/jpeg' })),
 }))
 
 import { getSession } from '../lib/session'
@@ -64,8 +68,8 @@ function renderGame() {
 beforeEach(() => {
   vi.clearAllMocks()
   vi.mocked(getSession).mockReturnValue(SESSION)
-  vi.mocked(supabase.channel).mockReturnValue(makeChannelMock() as ReturnType<typeof supabase.channel>)
-  vi.mocked(supabase.storage.from).mockReturnValue(makeStorageMock() as ReturnType<typeof supabase.storage.from>)
+  vi.mocked(supabase.channel).mockReturnValue(makeChannelMock() as unknown as ReturnType<typeof supabase.channel>)
+  vi.mocked(supabase.storage.from).mockReturnValue(makeStorageMock() as unknown as ReturnType<typeof supabase.storage.from>)
   Object.defineProperty(navigator, 'clipboard', {
     value: { writeText: vi.fn().mockResolvedValue(undefined) },
     writable: true,
@@ -162,28 +166,31 @@ describe('Game + ProposeCell', () => {
   })
 })
 
-// ─── Game → SubmitProof integration ───────────────────────────
+// ─── Game → CellSheet → ProofSheet integration ──────────────
 
-describe('Game + SubmitProof', () => {
+describe('Game + CellSheet + ProofSheet', () => {
   beforeEach(() => {
     mockFromByTable({
       grids: { data: [GRID], error: null },
       cells: { data: CELLS, error: null },
       users: { data: USERS, error: null },
-      submissions: { data: null, error: null },
+      submissions: { data: [], error: null },
     })
   })
 
-  it('opens SubmitProof with correct cell content when cell is clicked', async () => {
+  it('opens CellSheet with correct cell content when cell is clicked', async () => {
     renderGame()
     await screen.findByText('Pari 3')
     await userEvent.click(screen.getAllByText('Pari 3')[0])
-    await screen.findByText('"Pari 3"')
-    expect(screen.getByText(/pari sur alice/i)).toBeInTheDocument()
+    // CellSheet renders cell content as plain text (no quotes)
+    // and shows the target username
+    await screen.findByText('Soumettre une preuve')
+    // The username appears in the sheet
+    const aliceElements = screen.getAllByText('Alice')
+    expect(aliceElements.length).toBeGreaterThan(0)
   })
 
-  it('full submit proof flow: type text → submit → success', async () => {
-    // data: null → Game iterates null??[] = [], maybeSingle returns null → no duplicate found
+  it('full submit proof flow: CellSheet → ProofSheet → type text → submit → success', async () => {
     vi.mocked(supabase.from).mockImplementation((table: string) => {
       if (table === 'grids') return makeQueryBuilder({ data: [GRID], error: null }) as ReturnType<typeof supabase.from>
       if (table === 'cells') return makeQueryBuilder({ data: CELLS, error: null }) as ReturnType<typeof supabase.from>
@@ -195,21 +202,24 @@ describe('Game + SubmitProof', () => {
     renderGame()
     await screen.findByText('Pari 0')
     await userEvent.click(screen.getAllByText('Pari 0')[0])
-    await screen.findByText('"Pari 0"')
+    // CellSheet opens with "Soumettre une preuve" button
+    await screen.findByText('Soumettre une preuve')
+    await userEvent.click(screen.getByText('Soumettre une preuve'))
 
-    await userEvent.type(screen.getByPlaceholderText(/optionnel/i), 'Voici la preuve complète')
-    await userEvent.click(screen.getByRole('button', { name: /soumettre la preuve/i }))
-    await screen.findByText('✓ Preuve envoyée !')
+    // ProofSheet opens with its own UI
+    await screen.findByPlaceholderText(/décris ce qui/i)
+    await userEvent.type(screen.getByPlaceholderText(/décris ce qui/i), 'Voici la preuve complète')
+    await userEvent.click(screen.getByRole('button', { name: /envoyer au groupe/i }))
+    await screen.findByText(/preuve envoyée/i)
   })
 
-  it('SubmitProof insert payload contains correct cell_id and submitter', async () => {
+  it('ProofSheet insert payload contains correct cell_id and submitter', async () => {
     let insertPayload: unknown
     vi.mocked(supabase.from).mockImplementation((table: string) => {
       if (table === 'grids') return makeQueryBuilder({ data: [GRID], error: null }) as ReturnType<typeof supabase.from>
       if (table === 'cells') return makeQueryBuilder({ data: CELLS, error: null }) as ReturnType<typeof supabase.from>
       if (table === 'users') return makeQueryBuilder({ data: USERS, error: null }) as ReturnType<typeof supabase.from>
       if (table === 'submissions') {
-        // data: null → Game iterates null??[] = [], maybeSingle returns null → no duplicate
         const b = makeQueryBuilder({ data: null, error: null }) as ReturnType<typeof supabase.from>
         const origInsert = (b as Record<string, unknown>).insert as (v: unknown) => unknown
         ;(b as Record<string, unknown>).insert = (v: unknown) => { insertPayload = v; return origInsert(v) }
@@ -221,11 +231,15 @@ describe('Game + SubmitProof', () => {
     renderGame()
     await screen.findByText('Pari 1')
     await userEvent.click(screen.getAllByText('Pari 1')[0])
-    await screen.findByText('"Pari 1"')
+    // CellSheet opens
+    await screen.findByText('Soumettre une preuve')
+    await userEvent.click(screen.getByText('Soumettre une preuve'))
 
-    await userEvent.type(screen.getByPlaceholderText(/optionnel/i), 'Proof text here')
-    await userEvent.click(screen.getByRole('button', { name: /soumettre la preuve/i }))
-    await screen.findByText('✓ Preuve envoyée !')
+    // ProofSheet opens
+    await screen.findByPlaceholderText(/décris ce qui/i)
+    await userEvent.type(screen.getByPlaceholderText(/décris ce qui/i), 'Proof text here')
+    await userEvent.click(screen.getByRole('button', { name: /envoyer au groupe/i }))
+    await screen.findByText(/preuve envoyée/i)
 
     expect(insertPayload).toMatchObject({
       cell_id: 'cell-1',
@@ -238,26 +252,46 @@ describe('Game + SubmitProof', () => {
     renderGame()
     await screen.findByText('Pari 0')
     await userEvent.click(screen.getAllByText('Pari 0')[0])
-    await screen.findByText('"Pari 0"')
-    expect(screen.getByRole('button', { name: /soumettre la preuve/i })).toBeDisabled()
+    // CellSheet opens
+    await screen.findByText('Soumettre une preuve')
+    await userEvent.click(screen.getByText('Soumettre une preuve'))
+
+    // ProofSheet opens - submit button should be disabled
+    await screen.findByPlaceholderText(/décris ce qui/i)
+    expect(screen.getByRole('button', { name: /envoyer au groupe/i })).toBeDisabled()
   })
 
-  it('SubmitProof shows already-submitted error within Game flow', async () => {
+  it('ProofSheet shows already-submitted error within Game flow', async () => {
+    // Game loadGrid needs submissions as an empty array so cells render with submission=null
+    // ProofSheet's duplicate check (maybeSingle) needs to return an existing submission
+    let submissionsCallCount = 0
     vi.mocked(supabase.from).mockImplementation((table: string) => {
       if (table === 'grids') return makeQueryBuilder({ data: [GRID], error: null }) as ReturnType<typeof supabase.from>
       if (table === 'cells') return makeQueryBuilder({ data: CELLS, error: null }) as ReturnType<typeof supabase.from>
       if (table === 'users') return makeQueryBuilder({ data: USERS, error: null }) as ReturnType<typeof supabase.from>
-      // Array → Game can iterate; truthy → maybeSingle shows "already submitted"
-      if (table === 'submissions') return makeQueryBuilder({ data: [{ id: 'existing-sub' }], error: null }) as ReturnType<typeof supabase.from>
+      if (table === 'submissions') {
+        submissionsCallCount++
+        // First call: Game's loadGrid — return empty array so cells have no submission
+        // Second call: ProofSheet's duplicate check — return existing submission
+        if (submissionsCallCount === 1) {
+          return makeQueryBuilder({ data: [], error: null }) as ReturnType<typeof supabase.from>
+        }
+        return makeQueryBuilder({ data: { id: 'existing-sub' }, error: null }) as ReturnType<typeof supabase.from>
+      }
       return makeQueryBuilder({ data: null, error: null }) as ReturnType<typeof supabase.from>
     })
 
     renderGame()
     await screen.findByText('Pari 2')
     await userEvent.click(screen.getAllByText('Pari 2')[0])
-    await screen.findByText('"Pari 2"')
-    await userEvent.type(screen.getByPlaceholderText(/optionnel/i), 'Proof')
-    await userEvent.click(screen.getByRole('button', { name: /soumettre la preuve/i }))
+    // CellSheet opens
+    await screen.findByText('Soumettre une preuve')
+    await userEvent.click(screen.getByText('Soumettre une preuve'))
+
+    // ProofSheet opens
+    await screen.findByPlaceholderText(/décris ce qui/i)
+    await userEvent.type(screen.getByPlaceholderText(/décris ce qui/i), 'Proof')
+    await userEvent.click(screen.getByRole('button', { name: /envoyer au groupe/i }))
     await screen.findByText('Tu as déjà soumis une preuve pour cette case.')
   })
 })

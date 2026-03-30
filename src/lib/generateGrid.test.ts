@@ -9,6 +9,11 @@ vi.mock('./supabase', () => ({
   },
 }))
 
+vi.mock('./suggestChallenges', () => ({
+  currentWeekStart: vi.fn().mockReturnValue('2026-03-24'),
+  generateGroupSuggestions: vi.fn().mockResolvedValue(undefined),
+}))
+
 const mockFrom = vi.mocked(supabase.from)
 
 function makeProposals(n: number) {
@@ -51,7 +56,17 @@ beforeEach(() => {
 
 describe('generateGridFromPool', () => {
   it('throws when fewer than 9 approved proposals are available', async () => {
-    mockFrom.mockReturnValue(makeQueryBuilder({ data: makeProposals(5), error: null }) as ReturnType<typeof supabase.from>)
+    // First call: groups (grid_size), Second call: proposals
+    let callCount = 0
+    mockFrom.mockImplementation(() => {
+      callCount++
+      if (callCount === 1) {
+        // groups query
+        return makeQueryBuilder({ data: { grid_size: 3 }, error: null }) as ReturnType<typeof supabase.from>
+      }
+      // proposals query - only 8 (below cellCount of 9)
+      return makeQueryBuilder({ data: makeProposals(8), error: null }) as ReturnType<typeof supabase.from>
+    })
 
     await expect(generateGridFromPool('user-1', 'group-1')).rejects.toThrow(
       'Pas assez de paris approuvés'
@@ -59,9 +74,14 @@ describe('generateGridFromPool', () => {
   })
 
   it('throws when proposals query returns an error', async () => {
-    mockFrom.mockReturnValue(
-      makeQueryBuilder({ data: null, error: { message: 'DB error' } }) as ReturnType<typeof supabase.from>
-    )
+    let callCount = 0
+    mockFrom.mockImplementation(() => {
+      callCount++
+      if (callCount === 1) {
+        return makeQueryBuilder({ data: { grid_size: 3 }, error: null }) as ReturnType<typeof supabase.from>
+      }
+      return makeQueryBuilder({ data: null, error: { message: 'DB error' } }) as ReturnType<typeof supabase.from>
+    })
 
     await expect(generateGridFromPool('user-1', 'group-1')).rejects.toThrow('Erreur lecture pool')
   })
@@ -74,13 +94,16 @@ describe('generateGridFromPool', () => {
     mockFrom.mockImplementation(() => {
       callCount++
       if (callCount === 1) {
+        // groups query
+        return makeQueryBuilder({ data: { grid_size: 3 }, error: null }) as ReturnType<typeof supabase.from>
+      }
+      if (callCount === 2) {
         // proposals query
         return makeQueryBuilder({ data: proposals, error: null }) as ReturnType<typeof supabase.from>
       }
-      if (callCount === 2) {
+      if (callCount === 3) {
         // grid insert
-        const b = makeQueryBuilder({ data: mockGrid, error: null }) as ReturnType<typeof supabase.from>
-        return b
+        return makeQueryBuilder({ data: mockGrid, error: null }) as ReturnType<typeof supabase.from>
       }
       // cells insert
       return makeQueryBuilder({ data: cells, error: null }) as ReturnType<typeof supabase.from>
@@ -97,7 +120,12 @@ describe('generateGridFromPool', () => {
     let callCount = 0
     mockFrom.mockImplementation(() => {
       callCount++
-      if (callCount === 1) return makeQueryBuilder({ data: proposals, error: null }) as ReturnType<typeof supabase.from>
+      if (callCount === 1) {
+        return makeQueryBuilder({ data: { grid_size: 3 }, error: null }) as ReturnType<typeof supabase.from>
+      }
+      if (callCount === 2) {
+        return makeQueryBuilder({ data: proposals, error: null }) as ReturnType<typeof supabase.from>
+      }
       return makeQueryBuilder({ data: null, error: { message: 'insert failed' } }) as ReturnType<typeof supabase.from>
     })
 
@@ -110,8 +138,15 @@ describe('generateGridFromPool', () => {
     let callCount = 0
     mockFrom.mockImplementation(() => {
       callCount++
-      if (callCount === 1) return makeQueryBuilder({ data: proposals, error: null }) as ReturnType<typeof supabase.from>
-      if (callCount === 2) return makeQueryBuilder({ data: mockGrid, error: null }) as ReturnType<typeof supabase.from>
+      if (callCount === 1) {
+        return makeQueryBuilder({ data: { grid_size: 3 }, error: null }) as ReturnType<typeof supabase.from>
+      }
+      if (callCount === 2) {
+        return makeQueryBuilder({ data: proposals, error: null }) as ReturnType<typeof supabase.from>
+      }
+      if (callCount === 3) {
+        return makeQueryBuilder({ data: mockGrid, error: null }) as ReturnType<typeof supabase.from>
+      }
       return makeQueryBuilder({ data: null, error: { message: 'cells failed' } }) as ReturnType<typeof supabase.from>
     })
 

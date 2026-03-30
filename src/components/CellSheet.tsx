@@ -36,35 +36,49 @@ export default function CellSheet({ cell, onClose, onSubmitProof, onUpdated }: P
   const [loading, setLoading] = useState(false)
   const [toast, setToast] = useState<string | null>(null)
 
+  // pending_vote is legacy — treat as busted
+  const effectiveStatus = cell.status === 'pending_vote' ? 'busted' : cell.status
+  const isBusted = effectiveStatus === 'busted'
+
   const isTarget    = session?.userId === cell.target_user_id
   const isSubmitter = session?.userId === cell.submission?.submitter_user_id
-  const isPendingConfirmation = cell.status === 'pending_confirmation'
+  const isPendingConfirmation = effectiveStatus === 'pending_confirmation'
 
   async function handleConfirm() {
     setLoading(true)
-    await supabase.from('cells').update({ status: 'pending_vote' }).eq('id', cell.id)
-    setToast('Tu as confirmé ! Le groupe va maintenant voter.')
+    await supabase.from('cells').update({ status: 'busted' }).eq('id', cell.id)
+    // Insert a validation vote so Activity picks it up
+    if (cell.submission) {
+      await supabase.from('votes').insert({
+        submission_id: cell.submission.id,
+        voter_user_id: session!.userId,
+        is_valid: true,
+      })
+    }
+    setToast('Confirmé ! La case est validée 🎯')
     setTimeout(() => onUpdated(), 1800)
   }
 
   async function handleDeny() {
     setLoading(true)
-    await supabase.from('cells').update({ status: 'unchecked' }).eq('id', cell.id)
+    await supabase.from('cells').update({ status: 'rejected' }).eq('id', cell.id)
+    // Insert a rejection vote so Activity shows the notification to the submitter
     if (cell.submission) {
-      await supabase.from('submissions').delete().eq('id', cell.submission.id)
+      await supabase.from('votes').insert({
+        submission_id: cell.submission.id,
+        voter_user_id: session!.userId,
+        is_valid: false,
+      })
     }
-    onUpdated()
+    setToast('Preuve refusée.')
+    setTimeout(() => onUpdated(), 1200)
   }
-
-  const isBusted = cell.status === 'busted'
 
   // ─── Bannière d'état ───────────────────────────────────────
   const statusBanner =
-    cell.status === 'pending_confirmation'
+    effectiveStatus === 'pending_confirmation'
       ? { text: 'En attente de validation', bg: 'rgba(99,102,241,0.15)', color: '#818CF8', border: '#6366F1' }
-    : cell.status === 'pending_vote'
-      ? { text: 'Vote en cours', bg: 'rgba(80,120,0,0.15)', color: '#A0D000', border: '#4A6000' }
-    : cell.status === 'rejected'
+    : effectiveStatus === 'rejected'
       ? { text: 'Rejeté', bg: 'rgba(120,120,170,0.1)', color: '#7878AA', border: '#3A3A5A' }
     : null
 
@@ -136,7 +150,7 @@ export default function CellSheet({ cell, onClose, onSubmitProof, onUpdated }: P
             {isBusted && (
               <span style={styles.badgeBusted}>Busted !</span>
             )}
-            {cell.status === 'unchecked' && (
+            {effectiveStatus === 'unchecked' && (
               <span style={styles.badgeNeutral}>Non cochée</span>
             )}
           </div>
@@ -168,7 +182,7 @@ export default function CellSheet({ cell, onClose, onSubmitProof, onUpdated }: P
           {/* Actions selon rôle */}
           <div style={styles.actions}>
             {/* ── Case vide : soumettre une preuve ── */}
-            {(cell.status === 'unchecked' || cell.status == null) && (
+            {(effectiveStatus === 'unchecked' || effectiveStatus === 'rejected' || effectiveStatus == null) && (
               <button onClick={onSubmitProof} style={styles.primaryBtn}>
                 Soumettre une preuve
               </button>

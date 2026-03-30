@@ -28,6 +28,10 @@ vi.mock('../lib/session', () => ({
   saveSession: vi.fn(),
 }))
 
+vi.mock('../lib/compressImage', () => ({
+  compressImage: vi.fn().mockResolvedValue(new Blob(['compressed'], { type: 'image/jpeg' })),
+}))
+
 import { saveSession } from '../lib/session'
 import Onboarding from '../pages/Onboarding'
 
@@ -55,7 +59,7 @@ function setupHappyPath() {
     error: null,
   } as never)
   vi.mocked(supabase.storage.from).mockReturnValue(
-    makeStorageMock('https://cdn.example.com/avatar.jpg') as ReturnType<typeof supabase.storage.from>
+    makeStorageMock('https://cdn.example.com/avatar.jpg') as unknown as ReturnType<typeof supabase.storage.from>
   )
 }
 
@@ -64,12 +68,26 @@ beforeEach(() => {
   setupHappyPath()
 })
 
-// ─── Happy path ───────────────────────────────────────────────
+// Helper to complete step 1 and move to step 2
+async function completeStep1(username = 'Thomas') {
+  await userEvent.type(screen.getByPlaceholderText(/nico_le_roi/i), username)
+  await userEvent.click(screen.getByRole('button', { name: /suivant/i }))
+}
+
+// Helper to answer required questions in step 2
+async function answerQuestions() {
+  await userEvent.click(screen.getByText('Product'))
+  await userEvent.click(screen.getByText('Organisateur en chef'))
+  await userEvent.click(screen.getByText('Healthy & équilibré'))
+}
+
+// --- Happy path ---
 
 describe('Onboarding — complete flow', () => {
   it('full flow: type username → submit → saveSession called', async () => {
     renderOnboarding()
-    await userEvent.type(screen.getByPlaceholderText(/nico_le_roi/i), 'Thomas')
+    await completeStep1('Thomas')
+    await answerQuestions()
     await userEvent.click(screen.getByRole('button', { name: /rejoindre le groupe/i }))
 
     await waitFor(() => {
@@ -79,7 +97,8 @@ describe('Onboarding — complete flow', () => {
 
   it('navigates to /game after successful submission', async () => {
     renderOnboarding()
-    await userEvent.type(screen.getByPlaceholderText(/nico_le_roi/i), 'Thomas')
+    await completeStep1('Thomas')
+    await answerQuestions()
     await userEvent.click(screen.getByRole('button', { name: /rejoindre le groupe/i }))
 
     await screen.findByText('Game page')
@@ -99,7 +118,8 @@ describe('Onboarding — complete flow', () => {
     })
 
     renderOnboarding()
-    await userEvent.type(screen.getByPlaceholderText(/nico_le_roi/i), 'Thomas')
+    await completeStep1('Thomas')
+    await answerQuestions()
     await userEvent.click(screen.getByRole('button', { name: /rejoindre le groupe/i }))
 
     await waitFor(() => {
@@ -112,7 +132,7 @@ describe('Onboarding — complete flow', () => {
   })
 })
 
-// ─── Avatar upload flow ────────────────────────────────────────
+// --- Avatar upload flow ---
 
 describe('Onboarding — avatar upload flow', () => {
   it('full flow with avatar: uploads to storage, inserts avatar_url in profile', async () => {
@@ -133,7 +153,8 @@ describe('Onboarding — avatar upload flow', () => {
     const input = document.querySelector('input[type="file"]') as HTMLInputElement
     await userEvent.upload(input, file)
 
-    await userEvent.type(screen.getByPlaceholderText(/nico_le_roi/i), 'Thomas')
+    await completeStep1('Thomas')
+    await answerQuestions()
     await userEvent.click(screen.getByRole('button', { name: /rejoindre le groupe/i }))
 
     await waitFor(() => {
@@ -147,7 +168,7 @@ describe('Onboarding — avatar upload flow', () => {
   })
 })
 
-// ─── Error flows ──────────────────────────────────────────────
+// --- Error flows ---
 
 describe('Onboarding — error paths', () => {
   it('shows invite code error when group not found', async () => {
@@ -155,7 +176,8 @@ describe('Onboarding — error paths', () => {
       makeQueryBuilder({ data: null, error: { message: 'not found' } }) as ReturnType<typeof supabase.from>
     )
     renderOnboarding('BADCODE')
-    await userEvent.type(screen.getByPlaceholderText(/nico_le_roi/i), 'Thomas')
+    await completeStep1('Thomas')
+    await answerQuestions()
     await userEvent.click(screen.getByRole('button', { name: /rejoindre le groupe/i }))
     await screen.findByText("Code d'invitation invalide.")
     expect(saveSession).not.toHaveBeenCalled()
@@ -168,7 +190,8 @@ describe('Onboarding — error paths', () => {
     } as never)
 
     renderOnboarding()
-    await userEvent.type(screen.getByPlaceholderText(/nico_le_roi/i), 'Thomas')
+    await completeStep1('Thomas')
+    await answerQuestions()
     await userEvent.click(screen.getByRole('button', { name: /rejoindre le groupe/i }))
     await screen.findByText(/erreur d'authentification/i)
     expect(saveSession).not.toHaveBeenCalled()
@@ -182,7 +205,8 @@ describe('Onboarding — error paths', () => {
     })
 
     renderOnboarding()
-    await userEvent.type(screen.getByPlaceholderText(/nico_le_roi/i), 'Thomas')
+    await completeStep1('Thomas')
+    await answerQuestions()
     await userEvent.click(screen.getByRole('button', { name: /rejoindre le groupe/i }))
     await screen.findByText(/erreur lors de la création du profil/i)
     expect(saveSession).not.toHaveBeenCalled()

@@ -63,7 +63,7 @@ const avatarFallbackStyle: React.CSSProperties = {
 
 // ─── Main ─────────────────────────────────────────────────────
 
-const THRESHOLD = 3
+const THRESHOLD = 1
 
 export default function Proposals() {
   const navigate = useNavigate()
@@ -75,6 +75,7 @@ export default function Proposals() {
   const [showProposeCell, setShowProposeCell] = useState(false)
   const [toast, setToast] = useState<string | null>(null)
   const [votedIds, setVotedIds] = useState<Set<string>>(getVotedIds)
+  const [suggestionIdx, setSuggestionIdx] = useState(0)
   const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null)
   const suggestionsChannelRef = useRef<ReturnType<typeof supabase.channel> | null>(null)
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -99,25 +100,24 @@ export default function Proposals() {
     if (!session) return
     const weekStart = currentWeekStart()
 
-    // Auto-générer si rien n'existe encore pour cette semaine
-    const { count } = await supabase
-      .from('suggestions')
-      .select('id', { count: 'exact', head: true })
-      .eq('group_id', session.groupId)
-      .gte('created_at', weekStart)
-
-    if ((count ?? 0) === 0) {
-      await generateGroupSuggestions(session.groupId, weekStart)
-    }
+    // Additive: generates only for members without suggestions this week
+    await generateGroupSuggestions(session.groupId, weekStart)
 
     const { data } = await supabase
       .from('suggestions')
       .select('*, target:users!target_user_id(id, username, avatar_url)')
       .eq('group_id', session.groupId)
+      .neq('target_user_id', session.userId)
       .eq('is_available', true)
       .order('target_user_id')
 
-    setSuggestions((data ?? []) as unknown as SuggestionWithTarget[])
+    const all = (data ?? []) as unknown as SuggestionWithTarget[]
+    // Shuffle so the user sees different suggestions each time
+    for (let i = all.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [all[i], all[j]] = [all[j], all[i]]
+    }
+    setSuggestions(all)
     subscribeSuggestionsRealtime()
   }
 
@@ -153,7 +153,12 @@ export default function Proposals() {
       .eq('id', suggestion.id)
 
     // Retrait optimiste (le realtime confirme pour les autres)
-    setSuggestions((prev) => prev.filter((s) => s.id !== suggestion.id))
+    setSuggestions((prev) => {
+      const next = prev.filter((s) => s.id !== suggestion.id)
+      // Keep index in bounds
+      if (suggestionIdx >= next.length && next.length > 0) setSuggestionIdx(next.length - 1)
+      return next
+    })
     showToast('Défi ajouté au vote !')
   }
 
@@ -214,24 +219,24 @@ export default function Proposals() {
     markVoted(proposal.id)
     setVotedIds((prev) => new Set([...prev, proposal.id]))
 
-    const newCount = proposal.vote_count + 1
-    const isApproved = newCount >= THRESHOLD
+    const optimisticCount = proposal.vote_count + 1
+    const optimisticApproved = optimisticCount >= THRESHOLD
 
     // Optimistic update
     setProposals((prev) =>
       prev.map((p) =>
-        p.id === proposal.id ? { ...p, vote_count: newCount, is_approved: isApproved } : p
+        p.id === proposal.id ? { ...p, vote_count: optimisticCount, is_approved: optimisticApproved } : p
       )
     )
 
-    if (isApproved) {
+    if (optimisticApproved) {
       showToast(`✓ "${proposal.content.slice(0, 40)}${proposal.content.length > 40 ? '…' : ''}" est approuvé !`)
     }
 
-    const { error } = await supabase
-      .from('proposals')
-      .update({ vote_count: newCount, is_approved: isApproved })
-      .eq('id', proposal.id)
+    // Use server-side atomic increment to prevent race conditions
+    const { data, error } = await supabase.rpc('increment_vote_count', {
+      proposal_id: proposal.id,
+    })
 
     if (error) {
       console.error('[Proposals] vote update error:', error)
@@ -239,6 +244,15 @@ export default function Proposals() {
       setProposals((prev) =>
         prev.map((p) => p.id === proposal.id ? { ...p, vote_count: proposal.vote_count, is_approved: proposal.is_approved } : p)
       )
+    } else if (data && Array.isArray(data) && data.length > 0) {
+      // Reconcile with actual server values
+      const serverResult = data[0] as { vote_count: number; is_approved: boolean }
+      setProposals((prev) =>
+        prev.map((p) => p.id === proposal.id ? { ...p, vote_count: serverResult.vote_count, is_approved: serverResult.is_approved } : p)
+      )
+      if (serverResult.is_approved && !optimisticApproved) {
+        showToast(`✓ "${proposal.content.slice(0, 40)}${proposal.content.length > 40 ? '…' : ''}" est approuvé !`)
+      }
     }
   }
 
@@ -314,16 +328,17 @@ export default function Proposals() {
             transition={{ duration: 0.2 }}
             style={styles.list}
           >
-            {/* ── Suggestions ── */}
-            {suggestions.length > 0 && (
-              <Section title="✦ Suggestions pour toi">
-                <AnimatePresence>
-                  {suggestions.map((s) => (
+            {/* ── Suggestions (one at a time, scrollable) ── */}
+            {suggestions.length > 0 && (() => {
+              const s = suggestions[suggestionIdx]
+              return (
+                <Section title="✦ Suggestions pour toi">
+                  <AnimatePresence mode="wait">
                     <motion.div
                       key={s.id}
-                      initial={{ opacity: 0, y: -8 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      exit={{ opacity: 0, scale: 0.95 }}
+                      initial={{ opacity: 0, x: 30 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      exit={{ opacity: 0, x: -30 }}
                       transition={{ duration: 0.2 }}
                       style={styles.suggestionCard}
                     >
@@ -336,10 +351,49 @@ export default function Proposals() {
                         Choisir ce défi →
                       </button>
                     </motion.div>
-                  ))}
-                </AnimatePresence>
-              </Section>
-            )}
+                  </AnimatePresence>
+
+                  {/* Navigation + reload */}
+                  <div style={styles.suggestionNav}>
+                    <button
+                      onClick={() => setSuggestionIdx((i) => Math.max(0, i - 1))}
+                      disabled={suggestionIdx === 0}
+                      style={{ ...styles.navBtn, ...(suggestionIdx === 0 ? styles.navBtnDisabled : {}) }}
+                    >
+                      ←
+                    </button>
+                    <span style={styles.suggestionCounter}>
+                      {suggestionIdx + 1} / {suggestions.length}
+                    </span>
+                    <button
+                      onClick={() => setSuggestionIdx((i) => Math.min(suggestions.length - 1, i + 1))}
+                      disabled={suggestionIdx >= suggestions.length - 1}
+                      style={{ ...styles.navBtn, ...(suggestionIdx >= suggestions.length - 1 ? styles.navBtnDisabled : {}) }}
+                    >
+                      →
+                    </button>
+                    <button
+                      onClick={() => {
+                        // Reshuffle suggestions
+                        setSuggestions((prev) => {
+                          const copy = [...prev]
+                          for (let i = copy.length - 1; i > 0; i--) {
+                            const j = Math.floor(Math.random() * (i + 1));
+                            [copy[i], copy[j]] = [copy[j], copy[i]]
+                          }
+                          return copy
+                        })
+                        setSuggestionIdx(0)
+                      }}
+                      style={styles.reloadBtn}
+                      title="Mélanger"
+                    >
+                      ↻
+                    </button>
+                  </div>
+                </Section>
+              )
+            })()}
 
             {/* ── Bouton proposition manuelle ── */}
             <button onClick={() => setShowProposeCell(true)} style={styles.manualBtn}>
@@ -439,8 +493,9 @@ function ProposalCard({
   approvedView: boolean
 }) {
   const isOwn = proposal.proposer_user_id === userId
+  const isTarget = proposal.target_user_id === userId
   const alreadyVoted = votedIds.has(proposal.id)
-  const canVote = !isOwn && !proposal.is_approved && !alreadyVoted
+  const canVote = !isOwn && !isTarget && !proposal.is_approved && !alreadyVoted
   const progress = Math.min((proposal.vote_count / THRESHOLD) * 100, 100)
 
   return (
@@ -491,7 +546,7 @@ function ProposalCard({
                 ...(canVote ? {} : styles.voteBtnDisabled),
               }}
             >
-              {isOwn ? 'Ta proposition' : alreadyVoted ? 'Déjà voté' : 'Voter'}
+              {isOwn ? 'Ta proposition' : isTarget ? 'Te concerne' : alreadyVoted ? 'Déjà voté' : 'Voter'}
             </button>
           </div>
         </>
@@ -726,6 +781,53 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: '0.875rem',
     cursor: 'pointer',
     minHeight: '44px',
+  },
+  suggestionNav: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: '0.75rem',
+  },
+  navBtn: {
+    background: 'var(--color-surface)',
+    color: 'var(--color-text-primary)',
+    border: '1px solid var(--color-border)',
+    borderRadius: '50%',
+    width: '36px',
+    height: '36px',
+    fontSize: '1rem',
+    cursor: 'pointer',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 0,
+    fontFamily: 'var(--font-body)',
+    fontWeight: 700,
+  },
+  navBtnDisabled: {
+    opacity: 0.3,
+    cursor: 'not-allowed',
+  },
+  suggestionCounter: {
+    fontFamily: 'var(--font-body)',
+    fontWeight: 400,
+    fontSize: '0.8125rem',
+    color: 'var(--color-text-secondary)',
+  },
+  reloadBtn: {
+    background: 'transparent',
+    color: 'var(--color-text-secondary)',
+    border: '1px solid var(--color-border)',
+    borderRadius: '50%',
+    width: '36px',
+    height: '36px',
+    fontSize: '1.125rem',
+    cursor: 'pointer',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 0,
+    marginLeft: '0.25rem',
   },
   manualBtn: {
     background: 'transparent',

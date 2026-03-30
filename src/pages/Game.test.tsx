@@ -58,14 +58,14 @@ function mockFromByTable(overrides: Record<string, { data: unknown; error: unkno
 
 beforeEach(() => {
   vi.clearAllMocks()
-  vi.mocked(supabase.channel).mockReturnValue(makeChannelMock() as ReturnType<typeof supabase.channel>)
+  vi.mocked(supabase.channel).mockReturnValue(makeChannelMock() as unknown as ReturnType<typeof supabase.channel>)
   Object.defineProperty(navigator, 'clipboard', {
     value: { writeText: vi.fn().mockResolvedValue(undefined) },
     writable: true,
   })
 })
 
-// ─── No session ───────────────────────────────────────────────
+// --- No session ---
 
 describe('Game — no session', () => {
   it('returns null when no session', () => {
@@ -76,7 +76,7 @@ describe('Game — no session', () => {
   })
 })
 
-// ─── No grid yet ──────────────────────────────────────────────
+// --- No grid yet ---
 
 describe('Game — no grid', () => {
   beforeEach(() => vi.mocked(getSession).mockReturnValue(mockSession))
@@ -94,9 +94,9 @@ describe('Game — no grid', () => {
   })
 
   it('shows approved proposal count', async () => {
-    mockFromByTable({ grids: { data: [], error: null }, proposals: { data: null, error: null, count: 5 } })
+    mockFromByTable({ grids: { data: [], error: null }, proposals: { data: null, error: null, count: 10 } })
     render(<MemoryRouter><Game /></MemoryRouter>)
-    await screen.findByText(/5\/9 paris approuvés/)
+    await screen.findByText(/10\/9 paris approuvés/)
   })
 
   it('shows generate button when ≥9 proposals approved', async () => {
@@ -106,9 +106,9 @@ describe('Game — no grid', () => {
   })
 
   it('does not show generate button when <9 proposals', async () => {
-    mockFromByTable({ grids: { data: [], error: null }, proposals: { data: null, error: null, count: 4 } })
+    mockFromByTable({ grids: { data: [], error: null }, proposals: { data: null, error: null, count: 5 } })
     render(<MemoryRouter><Game /></MemoryRouter>)
-    await screen.findByText(/4\/9 paris approuvés/)
+    await screen.findByText(/5\/9 paris approuvés/)
     expect(screen.queryByRole('button', { name: /générer/i })).toBeNull()
   })
 
@@ -149,7 +149,7 @@ describe('Game — no grid', () => {
   })
 })
 
-// ─── Grid with cells ──────────────────────────────────────────
+// --- Grid with cells ---
 
 describe('Game — grid with cells', () => {
   beforeEach(() => {
@@ -190,20 +190,25 @@ describe('Game — grid with cells', () => {
     await screen.findByText('Proposer une case')
   })
 
-  it('opens SubmitProof on unsubmitted cell click', async () => {
+  it('opens CellSheet on unsubmitted cell click', async () => {
     render(<MemoryRouter><Game /></MemoryRouter>)
     await screen.findByText('Pari 0')
     await userEvent.click(screen.getAllByText('Pari 0')[0])
-    await screen.findByText(/soumettre la preuve/i)
+    // CellSheet shows "Soumettre une preuve" button for unchecked cells
+    await screen.findByText('Soumettre une preuve')
   })
 
   it('does not open SubmitProof when cell already has a submission', async () => {
     const cellsWithSubmission = mockCells.map((c, i) =>
-      i === 0 ? { ...c, content: 'Pari 0 done' } : c
+      i === 0 ? { ...c, content: 'Pari 0 done', status: 'busted' } : c
     )
     const submissionsData = [{
-      cell: { content: 'Pari 0 done', target_user_id: 'user-2' },
-      votes: [{ voter_user_id: 'user-2', is_valid: true }],
+      id: 'sub-0',
+      cell_id: 'cell-0',
+      submitter_user_id: 'user-1',
+      proof_text: 'Done',
+      proof_image_url: null,
+      created_at: '2026-03-25T10:00:00Z',
     }]
     mockFromByTable({
       grids: { data: [mockGrid], error: null },
@@ -214,8 +219,9 @@ describe('Game — grid with cells', () => {
     render(<MemoryRouter><Game /></MemoryRouter>)
     await screen.findByText('Pari 0 done')
     await userEvent.click(screen.getAllByText('Pari 0 done')[0])
-    // SubmitProof should not open
-    expect(screen.queryByText(/soumettre la preuve/i)).toBeNull()
+    // CellSheet opens but does NOT show "Soumettre une preuve" for busted cells
+    // It should show the proof card instead
+    expect(screen.queryByText('Soumettre une preuve')).toBeNull()
   })
 
   it('shows invite sheet after clicking invite button', async () => {
@@ -245,15 +251,13 @@ describe('Game — grid with cells', () => {
     await screen.findByText('Pari 0')
     await userEvent.click(document.querySelector('button[title="Inviter"]') as HTMLElement)
     await screen.findByText('CODE42')
-    await userEvent.click(screen.getByRole('button', { name: /copier le lien/i }))
-    expect(navigator.clipboard.writeText).toHaveBeenCalledWith(
-      expect.stringContaining('CODE42')
-    )
-    await screen.findByText('✓ Lien copié !')
+    await userEvent.click(screen.getByRole('button', { name: /copier le code/i }))
+    expect(navigator.clipboard.writeText).toHaveBeenCalledWith('CODE42')
+    await screen.findByText('✓ Code copié !')
   })
 })
 
-// ─── Bingo detection ──────────────────────────────────────────
+// --- Bingo detection ---
 
 describe('Game — bingo detection', () => {
   it('shows bingo badge when a row is fully validated', async () => {
@@ -262,103 +266,89 @@ describe('Game — bingo detection', () => {
       id: `cell-${i}`, grid_id: 'grid-1', target_user_id: 'user-2',
       content: `pari-${i}`, position: i, is_auto_generated: false,
       created_at: new Date().toISOString(),
-    }))
-    const submissions = [0, 1, 2].map((i) => ({
-      cell: { content: `pari-${i}`, target_user_id: 'user-2' },
-      votes: [{ voter_user_id: 'user-2', is_valid: true }],
+      // First row (positions 0,1,2) are busted
+      status: i < 3 ? 'busted' : 'unchecked',
     }))
     mockFromByTable({
       grids: { data: [mockGrid], error: null },
       cells: { data: cells, error: null },
       users: { data: mockUsers, error: null },
-      submissions: { data: submissions, error: null },
+      submissions: { data: [], error: null },
     })
     render(<MemoryRouter><Game /></MemoryRouter>)
-    await screen.findByText(/1 bingo/)
+    await screen.findByText(/BINGO/)
   })
 
-  it('shows ★ status on bingo cells', async () => {
+  it('shows Busted ! status on busted cells', async () => {
     vi.mocked(getSession).mockReturnValue(mockSession)
     const cells = Array.from({ length: 9 }, (_, i) => ({
       id: `cell-${i}`, grid_id: 'grid-1', target_user_id: 'user-2',
       content: `pari-${i}`, position: i, is_auto_generated: false,
       created_at: new Date().toISOString(),
-    }))
-    const submissions = [0, 1, 2].map((i) => ({
-      cell: { content: `pari-${i}`, target_user_id: 'user-2' },
-      votes: [{ voter_user_id: 'user-2', is_valid: true }],
+      status: i < 3 ? 'busted' : 'unchecked',
     }))
     mockFromByTable({
       grids: { data: [mockGrid], error: null },
       cells: { data: cells, error: null },
       users: { data: mockUsers, error: null },
-      submissions: { data: submissions, error: null },
+      submissions: { data: [], error: null },
     })
     render(<MemoryRouter><Game /></MemoryRouter>)
-    await screen.findAllByText('★')
+    await screen.findAllByText('Busted !')
   })
 
-  it('shows ✓ on validated non-bingo cells', async () => {
+  it('shows Busted ! on validated non-bingo cells', async () => {
     vi.mocked(getSession).mockReturnValue(mockSession)
     const cells = Array.from({ length: 9 }, (_, i) => ({
       id: `cell-${i}`, grid_id: 'grid-1', target_user_id: 'user-2',
       content: `pari-${i}`, position: i, is_auto_generated: false,
       created_at: new Date().toISOString(),
+      // Only cell 0 is busted — not a full line
+      status: i === 0 ? 'busted' : 'unchecked',
     }))
-    // Only cell 0 is validated — not a full line
-    const submissions = [{
-      cell: { content: 'pari-0', target_user_id: 'user-2' },
-      votes: [{ voter_user_id: 'user-2', is_valid: true }],
-    }]
     mockFromByTable({
       grids: { data: [mockGrid], error: null },
       cells: { data: cells, error: null },
       users: { data: mockUsers, error: null },
-      submissions: { data: submissions, error: null },
+      submissions: { data: [], error: null },
     })
     render(<MemoryRouter><Game /></MemoryRouter>)
-    await screen.findByText('✓')
+    await screen.findByText('Busted !')
   })
 
-  it('shows ✗ on contested cells', async () => {
+  it('shows Rejeté on rejected cells', async () => {
     vi.mocked(getSession).mockReturnValue(mockSession)
     const cells = Array.from({ length: 9 }, (_, i) => ({
       id: `cell-${i}`, grid_id: 'grid-1', target_user_id: 'user-2',
       content: `pari-${i}`, position: i, is_auto_generated: false,
       created_at: new Date().toISOString(),
+      status: i === 0 ? 'rejected' : 'unchecked',
     }))
-    const submissions = [{
-      cell: { content: 'pari-0', target_user_id: 'user-2' },
-      votes: [{ voter_user_id: 'user-2', is_valid: false }],
-    }]
     mockFromByTable({
       grids: { data: [mockGrid], error: null },
       cells: { data: cells, error: null },
       users: { data: mockUsers, error: null },
-      submissions: { data: submissions, error: null },
+      submissions: { data: [], error: null },
     })
     render(<MemoryRouter><Game /></MemoryRouter>)
-    await screen.findByText('✗')
+    await screen.findByText('Rejeté')
   })
 
-  it('shows ⏳ on pending cells (submission with no target vote yet)', async () => {
+  it('shows En attente de validation on pending cells', async () => {
     vi.mocked(getSession).mockReturnValue(mockSession)
     const cells = Array.from({ length: 9 }, (_, i) => ({
       id: `cell-${i}`, grid_id: 'grid-1', target_user_id: 'user-2',
       content: `pari-${i}`, position: i, is_auto_generated: false,
       created_at: new Date().toISOString(),
+      status: i === 0 ? 'pending_confirmation' : 'unchecked',
     }))
-    const submissions = [{
-      cell: { content: 'pari-0', target_user_id: 'user-2' },
-      votes: [], // no vote yet
-    }]
     mockFromByTable({
       grids: { data: [mockGrid], error: null },
       cells: { data: cells, error: null },
       users: { data: mockUsers, error: null },
-      submissions: { data: submissions, error: null },
+      submissions: { data: [], error: null },
     })
     render(<MemoryRouter><Game /></MemoryRouter>)
-    await screen.findByText('⏳')
+    await screen.findByText('En attente de validation')
   })
 })

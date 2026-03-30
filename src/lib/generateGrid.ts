@@ -1,6 +1,6 @@
 import { supabase } from './supabase'
 import type { Cell, Grid } from '../../supabase/types'
-import { generateGroupSuggestions } from './suggestChallenges'
+import { currentWeekStart, generateGroupSuggestions } from './suggestChallenges'
 
 // ─────────────────────────────────────────────────────────────
 // Types
@@ -22,13 +22,6 @@ function shuffle<T>(arr: T[]): T[] {
     ;[a[i], a[j]] = [a[j], a[i]]
   }
   return a
-}
-
-/** Lundi de la semaine ISO courante au format YYYY-MM-DD */
-function currentWeekStart(): string {
-  const d = new Date()
-  d.setDate(d.getDate() - ((d.getDay() + 6) % 7))
-  return d.toISOString().slice(0, 10)
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -66,7 +59,7 @@ export async function generateGridFromPool(
   if (!proposals || proposals.length < cellCount)
     throw new Error(`Pas assez de paris approuvés dans le pool (minimum ${cellCount} requis)`)
 
-  // 2. Mélanger et prendre cellCount
+  // 2. Mélanger et prendre cellCount (tous uniques)
   const picked = shuffle(proposals).slice(0, cellCount)
 
   // 3. Créer la grille

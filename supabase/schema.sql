@@ -8,11 +8,13 @@
 -- ─────────────────────────────────────────
 
 CREATE TABLE groups (
-  id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  name        text NOT NULL,
-  invite_code char(6) NOT NULL UNIQUE,
-  created_at  timestamptz NOT NULL DEFAULT now(),
-  reveal_at   timestamptz          -- timestamp de révélation du vendredi
+  id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  name          text NOT NULL,
+  invite_code   char(6) NOT NULL UNIQUE,
+  grid_size     integer NOT NULL DEFAULT 3,
+  duration_days integer NOT NULL DEFAULT 7,
+  created_at    timestamptz NOT NULL DEFAULT now(),
+  reveal_at     timestamptz          -- timestamp de révélation du vendredi
 );
 
 CREATE TABLE users (
@@ -74,17 +76,27 @@ CREATE TABLE proposals (
   created_at       timestamptz NOT NULL DEFAULT now()
 );
 
+CREATE TABLE suggestions (
+  id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  group_id        uuid NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
+  target_user_id  uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  content         text NOT NULL,
+  is_available    boolean NOT NULL DEFAULT true,
+  created_at      timestamptz NOT NULL DEFAULT now()
+);
+
 -- ─────────────────────────────────────────
 -- ROW LEVEL SECURITY
 -- ─────────────────────────────────────────
 
-ALTER TABLE groups      ENABLE ROW LEVEL SECURITY;
-ALTER TABLE users       ENABLE ROW LEVEL SECURITY;
-ALTER TABLE grids       ENABLE ROW LEVEL SECURITY;
-ALTER TABLE cells       ENABLE ROW LEVEL SECURITY;
-ALTER TABLE submissions ENABLE ROW LEVEL SECURITY;
-ALTER TABLE votes       ENABLE ROW LEVEL SECURITY;
-ALTER TABLE proposals   ENABLE ROW LEVEL SECURITY;
+ALTER TABLE groups       ENABLE ROW LEVEL SECURITY;
+ALTER TABLE users        ENABLE ROW LEVEL SECURITY;
+ALTER TABLE grids        ENABLE ROW LEVEL SECURITY;
+ALTER TABLE cells        ENABLE ROW LEVEL SECURITY;
+ALTER TABLE submissions  ENABLE ROW LEVEL SECURITY;
+ALTER TABLE votes        ENABLE ROW LEVEL SECURITY;
+ALTER TABLE proposals    ENABLE ROW LEVEL SECURITY;
+ALTER TABLE suggestions  ENABLE ROW LEVEL SECURITY;
 
 -- Helper : renvoie le group_id de l'utilisateur connecté
 CREATE OR REPLACE FUNCTION current_user_group_id()
@@ -243,3 +255,53 @@ CREATE POLICY "proposals: insert membres du groupe"
 CREATE POLICY "proposals: update membres du groupe"
   ON proposals FOR UPDATE
   USING (group_id = current_user_group_id());
+
+-- ── submissions: delete ─────────────────
+CREATE POLICY "submissions: delete par soumetteur ou cible"
+  ON submissions FOR DELETE
+  USING (
+    submitter_user_id = auth.uid()
+    OR EXISTS (
+      SELECT 1
+      FROM cells c
+      WHERE c.id = submissions.cell_id
+        AND c.target_user_id = auth.uid()
+    )
+  );
+
+-- ── suggestions ────────────────────────
+CREATE POLICY "suggestions: membres du même groupe"
+  ON suggestions FOR SELECT
+  USING (group_id = current_user_group_id());
+
+CREATE POLICY "suggestions: insert membres du groupe"
+  ON suggestions FOR INSERT
+  WITH CHECK (group_id = current_user_group_id());
+
+CREATE POLICY "suggestions: update membres du groupe"
+  ON suggestions FOR UPDATE
+  USING (group_id = current_user_group_id());
+
+-- ─────────────────────────────────────────
+-- FUNCTIONS (RPC)
+-- ─────────────────────────────────────────
+
+-- Atomic vote increment to prevent race conditions
+CREATE OR REPLACE FUNCTION increment_vote_count(proposal_id uuid)
+RETURNS TABLE(vote_count integer, is_approved boolean)
+LANGUAGE plpgsql SECURITY DEFINER AS $$
+DECLARE
+  _threshold integer := 1;
+  _new_count integer;
+  _approved boolean;
+BEGIN
+  UPDATE proposals
+  SET vote_count = proposals.vote_count + 1,
+      is_approved = (proposals.vote_count + 1) >= _threshold
+  WHERE id = proposal_id
+  RETURNING proposals.vote_count, proposals.is_approved
+  INTO _new_count, _approved;
+
+  RETURN QUERY SELECT _new_count, _approved;
+END;
+$$;

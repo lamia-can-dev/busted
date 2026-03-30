@@ -176,22 +176,13 @@ export function suggestChallenges(username: string, answers: OnboardingAnswers):
 // ─────────────────────────────────────────────────────────────
 
 /**
- * Génère et insère les suggestions pour tous les membres du groupe.
- * Idempotent : ne fait rien si des suggestions existent déjà cette semaine.
+ * Génère et insère les suggestions pour les membres du groupe qui n'en ont pas encore.
+ * Additive : génère uniquement pour les nouveaux membres sans suggestions cette semaine.
  */
 export async function generateGroupSuggestions(
   groupId: string,
   weekStart: string
 ): Promise<void> {
-  // Vérifier si des suggestions existent déjà pour ce groupe cette semaine
-  const { count } = await supabase
-    .from('suggestions')
-    .select('id', { count: 'exact', head: true })
-    .eq('group_id', groupId)
-    .gte('created_at', weekStart)
-
-  if ((count ?? 0) > 0) return // Déjà générées
-
   // Récupérer tous les membres du groupe
   const { data: members } = await supabase
     .from('users')
@@ -200,10 +191,22 @@ export async function generateGroupSuggestions(
 
   if (!members || members.length === 0) return
 
-  // Générer les suggestions pour chaque membre
+  // Récupérer les target_user_ids qui ont déjà des suggestions cette semaine
+  const { data: existingSuggestions } = await supabase
+    .from('suggestions')
+    .select('target_user_id')
+    .eq('group_id', groupId)
+    .gte('created_at', weekStart)
+
+  const existingTargets = new Set((existingSuggestions ?? []).map((s) => s.target_user_id))
+
+  // Générer les suggestions uniquement pour les membres sans suggestions
+  const newMembers = (members as User[]).filter((m) => !existingTargets.has(m.id))
+  if (newMembers.length === 0) return
+
   const rows: { group_id: string; target_user_id: string; content: string }[] = []
 
-  for (const member of members as User[]) {
+  for (const member of newMembers) {
     const answers = (member.onboarding_answers ?? {}) as OnboardingAnswers
     const contents = suggestChallenges(member.username, answers)
     for (const content of contents) {
