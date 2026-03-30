@@ -114,7 +114,7 @@ function mockLeaderboardData(opts: {
 
 beforeEach(() => {
   vi.clearAllMocks()
-  vi.mocked(useAuth).mockReturnValue({ userId: 'user-1', groupId: 'group-1', loading: false, signOut: vi.fn(), refreshGroupId: vi.fn() })
+  vi.mocked(useAuth).mockReturnValue({ userId: 'user-1', groupId: 'group-1', loading: false, signOut: vi.fn(), refreshGroupId: vi.fn(), loginAs: vi.fn() })
   vi.mocked(supabase.channel).mockReturnValue(makeChannelMock() as unknown as ReturnType<typeof supabase.channel>)
 })
 

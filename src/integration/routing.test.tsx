@@ -15,12 +15,6 @@ vi.mock('../lib/supabase', () => ({
     from: vi.fn(),
     channel: vi.fn(),
     rpc: vi.fn(),
-    auth: {
-      getSession: vi.fn(),
-      refreshSession: vi.fn(),
-      onAuthStateChange: vi.fn(() => ({ data: { subscription: { unsubscribe: vi.fn() } } })),
-      signOut: vi.fn(),
-    },
     storage: { from: vi.fn() },
   },
 }))
@@ -44,8 +38,6 @@ import { useAuth } from '../contexts/AuthContext'
 import App from '../App'
 
 function setupDefaultMocks() {
-  vi.mocked(supabase.auth.getSession).mockResolvedValue({ data: { session: null } } as never)
-  vi.mocked(supabase.auth.refreshSession).mockResolvedValue({ data: {}, error: null } as never)
   vi.mocked(supabase.from).mockReturnValue(makeQueryBuilder({ data: [], error: null }) as ReturnType<typeof supabase.from>)
   vi.mocked(supabase.channel).mockReturnValue(makeChannelMock() as unknown as ReturnType<typeof supabase.channel>)
   vi.mocked(supabase.rpc).mockResolvedValue({ data: [], error: null } as never)
@@ -73,6 +65,7 @@ describe('App routing — unauthenticated', () => {
       loading: false,
       signOut: vi.fn(),
       refreshGroupId: vi.fn(),
+      loginAs: vi.fn(),
     })
   })
 
@@ -80,14 +73,14 @@ describe('App routing — unauthenticated', () => {
     navigateTo('/')
     render(<App />)
     await screen.findByText('Busted')
-    expect(screen.getByPlaceholderText(/ton@email.com/i)).toBeInTheDocument()
+    expect(screen.getByPlaceholderText(/nico_le_roi/i)).toBeInTheDocument()
   })
 
   it('renders Login at /join/:code when unauthenticated (Onboarding redirects)', async () => {
     navigateTo('/join/ABC123')
     render(<App />)
     // Onboarding redirects unauthenticated users to /
-    await screen.findByPlaceholderText(/ton@email.com/i)
+    await screen.findByPlaceholderText(/nico_le_roi/i)
   })
 
   it('redirects /game to / (login) when no session', async () => {
@@ -95,25 +88,25 @@ describe('App routing — unauthenticated', () => {
     render(<App />)
     // ProtectedRoute redirects to '/' → Login renders
     await screen.findByText('Busted')
-    expect(screen.getByPlaceholderText(/ton@email.com/i)).toBeInTheDocument()
+    expect(screen.getByPlaceholderText(/nico_le_roi/i)).toBeInTheDocument()
   })
 
   it('redirects /activity to / when no session', async () => {
     navigateTo('/activity')
     render(<App />)
-    await screen.findByPlaceholderText(/ton@email.com/i)
+    await screen.findByPlaceholderText(/nico_le_roi/i)
   })
 
   it('redirects /proposals to / when no session', async () => {
     navigateTo('/proposals')
     render(<App />)
-    await screen.findByPlaceholderText(/ton@email.com/i)
+    await screen.findByPlaceholderText(/nico_le_roi/i)
   })
 
   it('redirects /leaderboard to / when no session', async () => {
     navigateTo('/leaderboard')
     render(<App />)
-    await screen.findByPlaceholderText(/ton@email.com/i)
+    await screen.findByPlaceholderText(/nico_le_roi/i)
   })
 })
 
@@ -125,10 +118,8 @@ describe('App routing — authenticated', () => {
       loading: false,
       signOut: vi.fn(),
       refreshGroupId: vi.fn(),
+      loginAs: vi.fn(),
     })
-    vi.mocked(supabase.auth.getSession).mockResolvedValue({
-      data: { session: { access_token: 'at', refresh_token: 'rt-1' } },
-    } as never)
   })
 
   it('renders Game at /game', async () => {
@@ -188,6 +179,7 @@ describe('App — auth loading', () => {
       loading: true,
       signOut: vi.fn(),
       refreshGroupId: vi.fn(),
+      loginAs: vi.fn(),
     })
     navigateTo('/game')
     const { container } = render(<App />)
@@ -195,19 +187,17 @@ describe('App — auth loading', () => {
     expect(container.querySelector('nav')).toBeNull()
   })
 
-  it('refreshes token from localStorage when Supabase has no session', async () => {
+  it('shows login when no session in localStorage', async () => {
     vi.mocked(useAuth).mockReturnValue({
       userId: null,
       groupId: null,
       loading: false,
       signOut: vi.fn(),
       refreshGroupId: vi.fn(),
+      loginAs: vi.fn(),
     })
-    localStorage.setItem('busted_refresh_token', 'old-token')
-    vi.mocked(supabase.auth.getSession).mockResolvedValue({ data: { session: null } } as never)
     navigateTo('/')
     render(<App />)
-    await screen.findByPlaceholderText(/ton@email.com/i)
-    localStorage.removeItem('busted_refresh_token')
+    await screen.findByPlaceholderText(/nico_le_roi/i)
   })
 })

@@ -65,7 +65,7 @@ function renderGame() {
 
 beforeEach(() => {
   vi.clearAllMocks()
-  vi.mocked(useAuth).mockReturnValue({ userId: 'user-1', groupId: 'group-1', loading: false, signOut: vi.fn(), refreshGroupId: vi.fn() })
+  vi.mocked(useAuth).mockReturnValue({ userId: 'user-1', groupId: 'group-1', loading: false, signOut: vi.fn(), refreshGroupId: vi.fn(), loginAs: vi.fn() })
   vi.mocked(supabase.channel).mockReturnValue(makeChannelMock() as unknown as ReturnType<typeof supabase.channel>)
   vi.mocked(supabase.storage.from).mockReturnValue(makeStorageMock() as unknown as ReturnType<typeof supabase.storage.from>)
   localStorage.setItem('busted_tutorial_done', 'true')

@@ -2,21 +2,21 @@ import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
+import { hashPassword } from '../lib/hash'
 import Logo from '../components/Logo'
 
 type Mode = 'login' | 'signup'
 
 export default function Login() {
   const navigate = useNavigate()
-  const { userId, groupId } = useAuth()
+  const { userId, groupId, loginAs } = useAuth()
 
   const [mode, setMode] = useState<Mode>('login')
-  const [email, setEmail] = useState('')
+  const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [signupSuccess, setSignupSuccess] = useState(false)
 
   useEffect(() => {
     if (userId) {
@@ -32,47 +32,61 @@ export default function Login() {
     }
   }, [userId, groupId, navigate])
 
-  async function handleEmailLogin(e: React.FormEvent) {
+  async function handleLogin(e: React.FormEvent) {
     e.preventDefault()
-    if (!email.trim() || !password) return
+    if (!username.trim() || !password) return
     setLoading(true)
     setError(null)
 
-    const { error } = await supabase.auth.signInWithPassword({ email: email.trim(), password })
-    if (error) setError(error.message)
+    const hash = await hashPassword(password)
+    const { data, error: dbError } = await supabase
+      .from('accounts')
+      .select('id, password_hash')
+      .eq('username', username.trim())
+      .maybeSingle()
+
+    if (dbError || !data || data.password_hash !== hash) {
+      setError('Identifiant ou mot de passe incorrect.')
+    } else {
+      localStorage.setItem('busted_username', username.trim())
+      loginAs(data.id)
+    }
     setLoading(false)
   }
 
-  async function handleEmailSignup(e: React.FormEvent) {
+  async function handleSignup(e: React.FormEvent) {
     e.preventDefault()
-    if (!email.trim() || !password) return
+    if (!username.trim() || !password) return
     if (password !== confirmPassword) {
       setError('Les mots de passe ne correspondent pas.')
+      return
+    }
+    if (password.length < 6) {
+      setError('Le mot de passe doit faire au moins 6 caractères.')
       return
     }
     setLoading(true)
     setError(null)
 
-    const { error } = await supabase.auth.signUp({ email: email.trim(), password })
-    if (error) {
-      setError(error.message)
+    const hash = await hashPassword(password)
+    const { data, error: dbError } = await supabase
+      .from('accounts')
+      .insert({ username: username.trim(), password_hash: hash })
+      .select()
+      .single()
+
+    if (dbError) {
+      console.error('Signup error:', dbError)
+      if (dbError.code === '23505') {
+        setError('Ce nom d\'utilisateur est déjà pris.')
+      } else {
+        setError(dbError.message)
+      }
     } else {
-      setSignupSuccess(true)
+      localStorage.setItem('busted_username', username.trim())
+      loginAs(data.id)
     }
     setLoading(false)
-  }
-
-  if (signupSuccess) {
-    return (
-      <main style={styles.container}>
-        <div style={styles.card}>
-          <Logo variant="full" />
-          <p style={styles.successMessage}>
-            V&eacute;rifie ta bo&icirc;te mail pour confirmer ton compte.
-          </p>
-        </div>
-      </main>
-    )
   }
 
   return (
@@ -99,14 +113,15 @@ export default function Login() {
         </div>
 
         {mode === 'login' ? (
-          <form onSubmit={handleEmailLogin} style={styles.form}>
+          <form onSubmit={handleLogin} style={styles.form}>
             <label style={styles.label}>
-              Email
+              Nom d'utilisateur
               <input
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="ton@email.com"
+                type="text"
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                placeholder="ex: Nico_le_Roi"
+                maxLength={20}
                 required
                 style={styles.input}
                 autoFocus
@@ -128,14 +143,15 @@ export default function Login() {
             </button>
           </form>
         ) : (
-          <form onSubmit={handleEmailSignup} style={styles.form}>
+          <form onSubmit={handleSignup} style={styles.form}>
             <label style={styles.label}>
-              Email
+              Nom d'utilisateur
               <input
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="ton@email.com"
+                type="text"
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                placeholder="ex: Nico_le_Roi"
+                maxLength={20}
                 required
                 style={styles.input}
                 autoFocus
@@ -256,12 +272,5 @@ const styles: Record<string, React.CSSProperties> = {
     color: 'var(--color-error)',
     fontSize: '0.875rem',
     margin: 0,
-  },
-  successMessage: {
-    color: 'var(--color-text-primary)',
-    fontSize: '1rem',
-    textAlign: 'center',
-    marginTop: '1.5rem',
-    lineHeight: 1.5,
   },
 }

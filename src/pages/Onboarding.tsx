@@ -25,7 +25,7 @@ export default function Onboarding() {
 
   // Step 1
   const [step, setStep] = useState<1 | 2>(1)
-  const [username, setUsername] = useState('')
+  const [username, setUsername] = useState(() => localStorage.getItem('busted_username') ?? '')
   const [avatarFile, setAvatarFile] = useState<File | null>(null)
   const [avatarPreview, setAvatarPreview] = useState<string | null>(null)
 

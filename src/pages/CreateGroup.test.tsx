@@ -23,7 +23,7 @@ beforeEach(() => {
   vi.mocked(supabase.from).mockReturnValue(
     makeQueryBuilder({ data: null, error: null }) as ReturnType<typeof supabase.from>
   )
-  vi.mocked(useAuth).mockReturnValue({ userId: 'u1', groupId: null, loading: false, signOut: vi.fn(), refreshGroupId: vi.fn() })
+  vi.mocked(useAuth).mockReturnValue({ userId: 'u1', groupId: null, loading: false, signOut: vi.fn(), refreshGroupId: vi.fn(), loginAs: vi.fn() })
   sessionStorage.clear()
 })
 
@@ -48,7 +48,7 @@ describe('CreateGroup — rendering', () => {
   })
 
   it('redirects to /game when session exists with group', () => {
-    vi.mocked(useAuth).mockReturnValue({ userId: 'u1', groupId: 'g1', loading: false, signOut: vi.fn(), refreshGroupId: vi.fn() })
+    vi.mocked(useAuth).mockReturnValue({ userId: 'u1', groupId: 'g1', loading: false, signOut: vi.fn(), refreshGroupId: vi.fn(), loginAs: vi.fn() })
     renderPage()
     // navigate('/game') is called — component still renders without crashing
   })

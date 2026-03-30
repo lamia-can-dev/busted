@@ -19,7 +19,7 @@ import NavBar from './NavBar'
 
 beforeEach(() => {
   vi.clearAllMocks()
-  vi.mocked(useAuth).mockReturnValue({ userId: 'user-1', groupId: 'group-1', loading: false, signOut: vi.fn(), refreshGroupId: vi.fn() })
+  vi.mocked(useAuth).mockReturnValue({ userId: 'user-1', groupId: 'group-1', loading: false, signOut: vi.fn(), refreshGroupId: vi.fn(), loginAs: vi.fn() })
   vi.mocked(supabase.from).mockReturnValue(
     makeQueryBuilder({ data: [], error: null }) as ReturnType<typeof supabase.from>
   )
@@ -43,7 +43,7 @@ describe('NavBar', () => {
   })
 
   it('renders without crashing when no session', () => {
-    vi.mocked(useAuth).mockReturnValue({ userId: null, groupId: null, loading: false, signOut: vi.fn(), refreshGroupId: vi.fn() })
+    vi.mocked(useAuth).mockReturnValue({ userId: null, groupId: null, loading: false, signOut: vi.fn(), refreshGroupId: vi.fn(), loginAs: vi.fn() })
     renderNav()
   })
 

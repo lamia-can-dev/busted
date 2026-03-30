@@ -1,8 +1,19 @@
 import { describe, it, expect, beforeEach } from 'vitest'
-import { saveSession, getSession, clearSession } from './session'
+import { saveSession, getSession, clearSession, saveUserId, getUserId } from './session'
 
 beforeEach(() => {
   localStorage.clear()
+})
+
+describe('saveUserId / getUserId', () => {
+  it('persists and retrieves userId', () => {
+    saveUserId('user-1')
+    expect(getUserId()).toBe('user-1')
+  })
+
+  it('returns null when no userId saved', () => {
+    expect(getUserId()).toBeNull()
+  })
 })
 
 describe('saveSession', () => {
@@ -12,22 +23,11 @@ describe('saveSession', () => {
     expect(localStorage.getItem('busted_group_id')).toBe('group-1')
   })
 
-  it('persists refreshToken when provided', () => {
-    saveSession('user-1', 'group-1', 'token-abc')
-    expect(localStorage.getItem('busted_refresh_token')).toBe('token-abc')
-  })
-
-  it('does not write refreshToken when omitted', () => {
-    saveSession('user-1', 'group-1')
-    expect(localStorage.getItem('busted_refresh_token')).toBeNull()
-  })
-
   it('overwrites a previous session', () => {
-    saveSession('user-1', 'group-1', 'old-token')
-    saveSession('user-2', 'group-2', 'new-token')
+    saveSession('user-1', 'group-1')
+    saveSession('user-2', 'group-2')
     expect(localStorage.getItem('busted_user_id')).toBe('user-2')
     expect(localStorage.getItem('busted_group_id')).toBe('group-2')
-    expect(localStorage.getItem('busted_refresh_token')).toBe('new-token')
   })
 })
 
@@ -48,32 +48,20 @@ describe('getSession', () => {
 
   it('returns session object when both userId and groupId are present', () => {
     saveSession('user-1', 'group-1')
-    expect(getSession()).toEqual({ userId: 'user-1', groupId: 'group-1', refreshToken: null })
-  })
-
-  it('includes refreshToken in returned object', () => {
-    saveSession('user-1', 'group-1', 'my-token')
-    expect(getSession()).toEqual({ userId: 'user-1', groupId: 'group-1', refreshToken: 'my-token' })
-  })
-
-  it('returns refreshToken: null when token was not saved', () => {
-    saveSession('user-1', 'group-1')
-    const session = getSession()
-    expect(session?.refreshToken).toBeNull()
+    expect(getSession()).toEqual({ userId: 'user-1', groupId: 'group-1' })
   })
 })
 
 describe('clearSession', () => {
   it('removes all session keys', () => {
-    saveSession('user-1', 'group-1', 'token-abc')
+    saveSession('user-1', 'group-1')
     clearSession()
     expect(localStorage.getItem('busted_user_id')).toBeNull()
     expect(localStorage.getItem('busted_group_id')).toBeNull()
-    expect(localStorage.getItem('busted_refresh_token')).toBeNull()
   })
 
   it('returns null from getSession after clearing', () => {
-    saveSession('user-1', 'group-1', 'token-abc')
+    saveSession('user-1', 'group-1')
     clearSession()
     expect(getSession()).toBeNull()
   })

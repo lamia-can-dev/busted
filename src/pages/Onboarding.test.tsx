@@ -39,7 +39,7 @@ function renderWithInvite(code = 'ABC123') {
 
 beforeEach(() => {
   vi.clearAllMocks()
-  vi.mocked(useAuth).mockReturnValue({ userId: 'anon-user', groupId: null, loading: false, signOut: vi.fn(), refreshGroupId: vi.fn() })
+  vi.mocked(useAuth).mockReturnValue({ userId: 'anon-user', groupId: null, loading: false, signOut: vi.fn(), refreshGroupId: vi.fn(), loginAs: vi.fn() })
   vi.mocked(supabase.from).mockImplementation((table: string) => {
     if (table === 'groups') return makeQueryBuilder({ data: mockGroup, error: null }) as ReturnType<typeof supabase.from>
     return makeQueryBuilder({ data: null, error: null }) as ReturnType<typeof supabase.from>
@@ -135,7 +135,7 @@ describe('Onboarding — form submission errors', () => {
 describe('Onboarding — successful submission', () => {
   it('calls refreshGroupId and navigates on success', async () => {
     const refreshGroupId = vi.fn()
-    vi.mocked(useAuth).mockReturnValue({ userId: 'anon-user', groupId: null, loading: false, signOut: vi.fn(), refreshGroupId })
+    vi.mocked(useAuth).mockReturnValue({ userId: 'anon-user', groupId: null, loading: false, signOut: vi.fn(), refreshGroupId, loginAs: vi.fn() })
     await goToStep2('Lamia')
     await userEvent.click(screen.getByRole('button', { name: /rejoindre le groupe/i }))
     await waitFor(() => {

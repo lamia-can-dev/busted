@@ -8,6 +8,7 @@ interface AuthState {
   loading: boolean
   signOut: () => Promise<void>
   refreshGroupId: () => Promise<void>
+  loginAs: (userId: string) => void
 }
 
 const AuthContext = createContext<AuthState | null>(null)
@@ -18,40 +19,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      if (session?.user) {
-        setUserId(session.user.id)
-        fetchGroupId(session.user.id)
-      } else {
-        // Try restoring from localStorage refresh token
-        const storedRefreshToken = localStorage.getItem('busted_refresh_token')
-        if (storedRefreshToken) {
-          supabase.auth.refreshSession({ refresh_token: storedRefreshToken }).then(({ data }) => {
-            if (data.session?.user) {
-              setUserId(data.session.user.id)
-              fetchGroupId(data.session.user.id)
-            } else {
-              setLoading(false)
-            }
-          })
-        } else {
-          setLoading(false)
-        }
-      }
-    })
-
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      if (session?.user) {
-        setUserId(session.user.id)
-        fetchGroupId(session.user.id)
-      } else {
-        setUserId(null)
-        setGroupId(null)
-        setLoading(false)
-      }
-    })
-
-    return () => subscription.unsubscribe()
+    const storedUserId = localStorage.getItem('busted_user_id')
+    if (storedUserId) {
+      setUserId(storedUserId)
+      fetchGroupId(storedUserId)
+    } else {
+      setLoading(false)
+    }
   }, [])
 
   async function fetchGroupId(uid: string) {
@@ -80,17 +54,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }
 
+  function loginAs(newUserId: string) {
+    localStorage.setItem('busted_user_id', newUserId)
+    setUserId(newUserId)
+    fetchGroupId(newUserId)
+  }
+
   async function signOut() {
-    await supabase.auth.signOut()
     localStorage.removeItem('busted_user_id')
     localStorage.removeItem('busted_group_id')
-    localStorage.removeItem('busted_refresh_token')
     setUserId(null)
     setGroupId(null)
   }
 
   return (
-    <AuthContext.Provider value={{ userId, groupId, loading, signOut, refreshGroupId }}>
+    <AuthContext.Provider value={{ userId, groupId, loading, signOut, refreshGroupId, loginAs }}>
       {children}
     </AuthContext.Provider>
   )

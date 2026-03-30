@@ -38,7 +38,7 @@ function mockFromByTable(overrides: Record<string, { data: unknown; error: unkno
 
 beforeEach(() => {
   vi.clearAllMocks()
-  vi.mocked(useAuth).mockReturnValue({ userId: 'user-1', groupId: 'group-1', loading: false, signOut: vi.fn(), refreshGroupId: vi.fn() })
+  vi.mocked(useAuth).mockReturnValue({ userId: 'user-1', groupId: 'group-1', loading: false, signOut: vi.fn(), refreshGroupId: vi.fn(), loginAs: vi.fn() })
   mockFromByTable({ users: { data: mockMembers, error: null } })
 })
 
