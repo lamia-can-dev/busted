@@ -2,8 +2,7 @@ import { useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { supabase } from '../lib/supabase'
 import { getSession } from '../lib/session'
-
-type CellStatus = 'unchecked' | 'pending_confirmation' | 'pending_vote' | 'busted' | 'rejected'
+import type { CellStatus } from '../lib/cellStatus'
 
 interface CellSheetCell {
   id: string
@@ -36,8 +35,8 @@ export default function CellSheet({ cell, onClose, onSubmitProof, onUpdated }: P
   const [loading, setLoading] = useState(false)
   const [toast, setToast] = useState<string | null>(null)
 
-  // pending_vote is legacy — treat as busted
-  const effectiveStatus = cell.status === 'pending_vote' ? 'busted' : cell.status
+  // Status is already normalized by Game.tsx via normalizeStatus()
+  const effectiveStatus = cell.status
   const isBusted = effectiveStatus === 'busted'
 
   const isTarget    = session?.userId === cell.target_user_id
@@ -79,7 +78,7 @@ export default function CellSheet({ cell, onClose, onSubmitProof, onUpdated }: P
     effectiveStatus === 'pending_confirmation'
       ? { text: 'En attente de validation', bg: 'rgba(99,102,241,0.15)', color: '#818CF8', border: '#6366F1' }
     : effectiveStatus === 'rejected'
-      ? { text: 'Rejeté', bg: 'rgba(120,120,170,0.1)', color: '#7878AA', border: '#3A3A5A' }
+      ? { text: 'Rejeté', bg: 'rgba(120,120,170,0.1)', color: 'var(--color-muted)', border: 'var(--color-border)' }
     : null
 
   // ─── Badge dans la ligne avatar ────────────────────────────
@@ -87,7 +86,7 @@ export default function CellSheet({ cell, onClose, onSubmitProof, onUpdated }: P
     isPendingConfirmation && isTarget
       ? { text: 'On parle de toi !', bg: '#2D0F2A', border: '#FF5FCC', color: '#FF5FCC' }
     : isPendingConfirmation && isSubmitter
-      ? { text: 'En attente de confirmation', bg: '#12122A', border: '#4338CA', color: '#A5B4FC' }
+      ? { text: 'En attente de confirmation', bg: '#12122A', border: 'var(--color-indigo)', color: '#A5B4FC' }
     : null
 
   return (
@@ -231,9 +230,9 @@ const styles: Record<string, React.CSSProperties> = {
     alignItems: 'flex-end',
   },
   sheet: {
-    background: '#1A1A2E',
+    background: 'var(--color-surface)',
     borderRadius: '20px 20px 0 0',
-    padding: '0.75rem 1.5rem 2.5rem',
+    padding: '0.75rem 1.5rem calc(2.5rem + env(safe-area-inset-bottom, 0px))',
     width: '100%',
     maxWidth: '560px',
     margin: '0 auto',
@@ -242,12 +241,12 @@ const styles: Record<string, React.CSSProperties> = {
   handle: {
     width: '32px',
     height: '3px',
-    background: '#3A3A5A',
+    background: 'var(--color-border)',
     borderRadius: '2px',
     margin: '0 auto 1.25rem',
   },
   toast: {
-    background: '#22c55e',
+    background: 'var(--color-success)',
     color: '#fff',
     fontFamily: 'var(--font-body)',
     fontWeight: 700,
@@ -297,7 +296,7 @@ const styles: Record<string, React.CSSProperties> = {
     fontFamily: 'var(--font-body)',
     fontWeight: 700,
     fontSize: '0.9375rem',
-    color: '#F0F0FF',
+    color: 'var(--color-text-primary)',
     flex: 1,
   },
   badge: {
@@ -320,8 +319,8 @@ const styles: Record<string, React.CSSProperties> = {
     letterSpacing: '0.02em',
   },
   badgeNeutral: {
-    background: '#0F0F1A',
-    color: '#7878AA',
+    background: 'var(--color-bg)',
+    color: 'var(--color-muted)',
     fontSize: '0.75rem',
     fontWeight: 600,
     fontFamily: 'var(--font-body)',
@@ -333,13 +332,13 @@ const styles: Record<string, React.CSSProperties> = {
     fontFamily: 'var(--font-body)',
     fontWeight: 400,
     fontSize: '0.875rem',
-    color: '#F0F0FF',
+    color: 'var(--color-text-primary)',
     lineHeight: 1.5,
     margin: '0 0 1rem',
   },
   proofCard: {
-    background: '#0F0F1A',
-    border: '1px solid #3A3A5A',
+    background: 'var(--color-bg)',
+    border: '1px solid var(--color-border)',
     borderRadius: '10px',
     padding: '0.75rem',
     display: 'flex',
@@ -351,7 +350,7 @@ const styles: Record<string, React.CSSProperties> = {
     fontFamily: 'var(--font-body)',
     fontWeight: 600,
     fontSize: '0.75rem',
-    color: '#7878AA',
+    color: 'var(--color-muted)',
     margin: 0,
     letterSpacing: '0.02em',
   },
@@ -382,7 +381,7 @@ const styles: Record<string, React.CSSProperties> = {
     gap: '0.625rem',
   },
   primaryBtn: {
-    background: '#4338CA',
+    background: 'var(--color-indigo)',
     color: '#ffffff',
     border: 'none',
     borderRadius: '13px',
@@ -408,9 +407,9 @@ const styles: Record<string, React.CSSProperties> = {
     minHeight: '44px',
   },
   denyBtn: {
-    background: '#1A1A2E',
-    color: '#7878AA',
-    border: '1px solid #3A3A5A',
+    background: 'var(--color-surface)',
+    color: 'var(--color-muted)',
+    border: '1px solid var(--color-border)',
     borderRadius: '13px',
     padding: '0.875rem',
     fontFamily: 'var(--font-body)',
@@ -422,8 +421,8 @@ const styles: Record<string, React.CSSProperties> = {
   },
   cancelBtn: {
     background: 'transparent',
-    color: '#7878AA',
-    border: '1px solid #3A3A5A',
+    color: 'var(--color-muted)',
+    border: '1px solid var(--color-border)',
     borderRadius: '13px',
     padding: '0.875rem',
     fontFamily: 'var(--font-body)',
@@ -437,7 +436,7 @@ const styles: Record<string, React.CSSProperties> = {
     fontFamily: 'var(--font-body)',
     fontWeight: 400,
     fontSize: '0.875rem',
-    color: '#7878AA',
+    color: 'var(--color-muted)',
     textAlign: 'center' as const,
     margin: '0.25rem 0',
     lineHeight: 1.5,

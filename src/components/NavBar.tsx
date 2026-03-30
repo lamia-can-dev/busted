@@ -151,7 +151,7 @@ const styles: Record<string, React.CSSProperties> = {
     position: 'absolute',
     top: '-4px',
     right: '-6px',
-    background: '#ef4444',
+    background: 'var(--color-error)',
     color: 'var(--color-text-primary)',
     fontSize: '0.75rem',
     fontWeight: 700,

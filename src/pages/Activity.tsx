@@ -7,7 +7,7 @@ import Logo from '../components/Logo'
 
 // ─── Types ────────────────────────────────────────────────────
 
-type NotifType = 'vote_required' | 'busted' | 'proof_validated' | 'proof_rejected' | 'challenge_approved'
+type NotifType = 'vote_required' | 'busted' | 'proof_validated' | 'proof_rejected' | 'proof_pending' | 'challenge_approved'
 
 interface AppNotification {
   id: string
@@ -36,8 +36,9 @@ function timeAgo(iso: string): string {
 const TYPE_COLORS: Record<NotifType, string> = {
   vote_required: 'var(--color-indigo)',
   busted: 'var(--color-rose)',
-  proof_validated: '#22c55e',
+  proof_validated: 'var(--color-success)',
   proof_rejected: 'var(--color-text-secondary)',
+  proof_pending: 'var(--color-indigo)',
   challenge_approved: 'var(--color-indigo)',
 }
 
@@ -46,6 +47,7 @@ const TYPE_ICONS: Record<NotifType, string> = {
   busted: '🎯',
   proof_validated: '✓',
   proof_rejected: '✗',
+  proof_pending: '⏳',
   challenge_approved: '✦',
 }
 
@@ -201,7 +203,7 @@ export default function Activity() {
         const id = `proof_pending_${s.id}`
         notifs.push({
           id,
-          type: 'vote_required',
+          type: 'proof_pending',
           text: `Ta preuve pour ${cell?.target?.username ?? '?'} est en attente de validation`,
           cellContent: cell?.content,
           timestamp: s.created_at,
@@ -370,9 +372,9 @@ export default function Activity() {
 
 const styles: Record<string, React.CSSProperties> = {
   page: {
-    minHeight: '100vh',
+    minHeight: '100dvh',
     background: 'var(--color-bg)',
-    paddingBottom: '6rem',
+    paddingBottom: 'calc(5rem + env(safe-area-inset-bottom, 0px))',
   },
   header: {
     padding: '1.5rem 1.25rem 0.5rem',

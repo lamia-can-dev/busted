@@ -228,7 +228,7 @@ const styles: Record<string, React.CSSProperties> = {
   sheet: {
     background: 'var(--color-surface)',
     borderRadius: '1.5rem 1.5rem 0 0',
-    padding: '1rem 1.5rem 2.5rem',
+    padding: '1rem 1.5rem calc(2.5rem + env(safe-area-inset-bottom, 0px))',
     width: '100%',
     maxWidth: '560px',
     margin: '0 auto',
@@ -370,7 +370,7 @@ const styles: Record<string, React.CSSProperties> = {
     cursor: 'not-allowed',
   },
   error: {
-    color: '#ef4444',
+    color: 'var(--color-error)',
     fontSize: '0.875rem',
     margin: 0,
   },

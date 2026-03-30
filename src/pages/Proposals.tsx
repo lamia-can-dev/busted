@@ -559,9 +559,9 @@ function ProposalCard({
 
 const styles: Record<string, React.CSSProperties> = {
   page: {
-    minHeight: '100vh',
+    minHeight: '100dvh',
     background: 'var(--color-bg)',
-    paddingBottom: '6rem',
+    paddingBottom: 'calc(5rem + env(safe-area-inset-bottom, 0px))',
   },
   header: {
     padding: '1.5rem 1.25rem 0.5rem',
@@ -736,11 +736,11 @@ const styles: Record<string, React.CSSProperties> = {
   },
   approvedBadge: {
     background: '#14532d',
-    color: '#22c55e',
+    color: 'var(--color-success)',
     fontSize: '0.75rem',
     padding: '0.2rem 0.5rem',
     borderRadius: '999px',
-    border: '1px solid #22c55e',
+    border: '1px solid var(--color-success)',
   },
   toast: {
     position: 'fixed',
@@ -748,8 +748,8 @@ const styles: Record<string, React.CSSProperties> = {
     left: '50%',
     transform: 'translateX(-50%)',
     background: '#14532d',
-    color: '#22c55e',
-    border: '1px solid #22c55e',
+    color: 'var(--color-success)',
+    border: '1px solid var(--color-success)',
     borderRadius: '0.75rem',
     padding: '0.75rem 1.25rem',
     fontSize: '0.9rem',

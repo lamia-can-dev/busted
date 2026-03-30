@@ -11,6 +11,7 @@ import ProofSheet from '../components/ProofSheet'
 import Logo from '../components/Logo'
 import { generateGridFromPool } from '../lib/generateGrid'
 import { checkLines, checkColumns, checkDiagonals } from '../lib/bingoUtils'
+import { normalizeStatus } from '../lib/cellStatus'
 
 // ─── Types ────────────────────────────────────────────────────
 
@@ -33,10 +34,10 @@ type SelectedCell = GridWithCells['cells'][number]
 
 // ─── Config by grid size ───────────────────────────────────────
 
-const CELL_CONFIG: Record<number, { minHeight: number; fontSize: number }> = {
-  3: { minHeight: 80, fontSize: 11 },
-  4: { minHeight: 64, fontSize: 10 },
-  5: { minHeight: 54, fontSize: 9 },
+const CELL_CONFIG: Record<number, { fontSize: number }> = {
+  3: { fontSize: 11 },
+  4: { fontSize: 10 },
+  5: { fontSize: 9 },
 }
 
 // ─── Main ─────────────────────────────────────────────────────
@@ -126,13 +127,10 @@ export default function Game() {
 
     const newCells = safeCells.map((c) => {
       const submission = submissionMap.get(c.id) ?? null
-      const rawStatus = (c.status ?? 'unchecked') as string
-      // pending_vote is legacy — now confirmation goes straight to busted
-      const dbStatus = (rawStatus === 'pending_vote' ? 'busted' : rawStatus) as Cell['status']
-      // Si la colonne status n'existe pas en DB (undefined→'unchecked') mais qu'une
-      // soumission existe, on affiche au moins l'état en attente de validation
+      const base = normalizeStatus(c.status)
+      // If status is unchecked but a submission exists, show pending_confirmation
       const status: Cell['status'] =
-        dbStatus === 'unchecked' && submission !== null ? 'pending_confirmation' : dbStatus
+        base === 'unchecked' && submission !== null ? 'pending_confirmation' : base
       return {
         ...c,
         status,
@@ -147,8 +145,12 @@ export default function Game() {
     const newBingoCount = checkLines(newCells, n).length + checkColumns(newCells, n).length + diags.filter(Boolean).length
     if (!isFirstLoadRef.current && newBingoCount > prevBingoCountRef.current) {
       setShowBingo(true)
-      setTimeout(() => setShowBingo(false), 3000)
-      confetti({ particleCount: 120, spread: 80, origin: { y: 0.5 }, colors: ['#FF5FCC', '#6366F1', '#facc15'] })
+      setTimeout(() => setShowBingo(false), 4000)
+      // Multi-burst confetti from different angles
+      const colors = ['#FF5FCC', '#6366F1', '#FACC15', '#22c55e', '#f97316']
+      confetti({ particleCount: 80, spread: 70, origin: { x: 0.3, y: 0.5 }, colors, angle: 60 })
+      setTimeout(() => confetti({ particleCount: 80, spread: 70, origin: { x: 0.7, y: 0.5 }, colors, angle: 120 }), 250)
+      setTimeout(() => confetti({ particleCount: 100, spread: 100, origin: { x: 0.5, y: 0.3 }, colors, startVelocity: 55 }), 500)
     }
     prevBingoCountRef.current = newBingoCount
     isFirstLoadRef.current = false
@@ -208,14 +210,33 @@ export default function Game() {
       <AnimatePresence>
         {showBingo && (
           <motion.div
-            initial={{ opacity: 0, scale: 0.5 }}
-            animate={{ opacity: 1, scale: 1 }}
-            exit={{ opacity: 0, scale: 1.2 }}
-            transition={{ type: 'spring', damping: 15, stiffness: 300 }}
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.3 }}
             style={styles.bingoOverlay}
           >
-            <div style={styles.bingoText}>BINGO !</div>
-            <div style={styles.bingoSub}>Tu as complété une ligne 🎉</div>
+            <div style={styles.bingoLetters}>
+              {'BINGO !'.split('').map((ch, i) => (
+                <motion.span
+                  key={i}
+                  initial={{ opacity: 0, y: 40, scale: 0.3, rotate: -15 }}
+                  animate={{ opacity: 1, y: 0, scale: 1, rotate: 0 }}
+                  transition={{ delay: 0.15 + i * 0.08, type: 'spring', damping: 10, stiffness: 200 }}
+                  style={ch === ' ' ? styles.bingoSpace : styles.bingoLetter}
+                >
+                  {ch}
+                </motion.span>
+              ))}
+            </div>
+            <motion.div
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.9, duration: 0.4 }}
+              style={styles.bingoSub}
+            >
+              Tu as complété une ligne !
+            </motion.div>
           </motion.div>
         )}
       </AnimatePresence>
@@ -241,7 +262,7 @@ export default function Game() {
         <div style={styles.emptyState}>
           <p style={styles.emptyText}>Pas encore de grille pour cette semaine.</p>
           <div style={styles.progressChip}>
-            <span style={{ color: approvedCount >= 9 ? '#22c55e' : 'var(--color-text-secondary)' }}>
+            <span style={{ color: approvedCount >= 9 ? 'var(--color-success)' : 'var(--color-text-secondary)' }}>
               {approvedCount}/9 paris approuvés
             </span>
           </div>
@@ -267,7 +288,7 @@ export default function Game() {
             {Array.from({ length: n }, (_, c) => (
               <div key={c} style={{ flex: 1, display: 'flex', justifyContent: 'center' }}>
                 <motion.div
-                  animate={{ background: isColComplete(c) ? 'var(--color-rose)' : '#3A3A5A' }}
+                  animate={{ background: isColComplete(c) ? '#FF5FCC' : '#3A3A5A' }}
                   transition={{ duration: 0.4 }}
                   style={styles.dot}
                 />
@@ -281,7 +302,7 @@ export default function Game() {
               {/* Indicateur de ligne */}
               <div style={{ width: DOT, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                 <motion.div
-                  animate={{ background: isRowComplete(r) ? 'var(--color-rose)' : '#3A3A5A' }}
+                  animate={{ background: isRowComplete(r) ? '#FF5FCC' : '#3A3A5A' }}
                   transition={{ duration: 0.4 }}
                   style={styles.dot}
                 />
@@ -294,7 +315,6 @@ export default function Game() {
                   <CellCard
                     key={cell?.id ?? `${r}-${c}`}
                     cell={cell}
-                    minHeight={cellCfg.minHeight}
                     fontSize={cellCfg.fontSize}
                     onClick={() => { if (cell) { setSelectedCell(cell); setShowCellSheet(true) } }}
                   />
@@ -314,7 +334,15 @@ export default function Game() {
                 style={styles.bingoPillRow}
               >
                 {Array.from({ length: completedLineCount }, (_, i) => (
-                  <span key={i} style={styles.bingoPill}>BINGO !</span>
+                  <motion.span
+                    key={i}
+                    initial={{ opacity: 0, scale: 0.5 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    transition={{ delay: i * 0.1, type: 'spring', damping: 12, stiffness: 200 }}
+                    style={styles.bingoPill}
+                  >
+                    BINGO !
+                  </motion.span>
                 ))}
               </motion.div>
             )}
@@ -337,7 +365,7 @@ export default function Game() {
         )}
       </AnimatePresence>
       <AnimatePresence>
-        {!showCellSheet && selectedCell && selectedCell.submission === null && (
+        {!showCellSheet && selectedCell && (selectedCell.submission === null || selectedCell.status === 'rejected') && (
           <ProofSheet
             key="proof-sheet"
             cell={selectedCell}
@@ -391,12 +419,10 @@ export default function Game() {
 
 function CellCard({
   cell,
-  minHeight,
   fontSize,
   onClick,
 }: {
   cell: GridWithCells['cells'][number] | undefined
-  minHeight: number
   fontSize: number
   onClick: () => void
 }) {
@@ -406,22 +432,20 @@ function CellCard({
 
   const strip =
     status === 'busted'                ? { text: 'Busted !',                 bg: 'var(--color-rose)', color: '#fff' }
-    : status === 'pending_confirmation'  ? { text: 'En attente de validation', bg: '#4338CA',           color: '#fff' }
-    : status === 'pending_vote'          ? { text: 'Vote en cours',            bg: '#1E3A00',           color: '#A0D000' }
-    : status === 'rejected'              ? { text: 'Rejeté',                   bg: '#2A2A4A',           color: '#7878AA' }
+    : status === 'pending_confirmation'  ? { text: 'En attente de validation', bg: 'var(--color-indigo)', color: '#fff' }
+    : status === 'rejected'              ? { text: 'Rejeté',                   bg: 'var(--color-border)', color: 'var(--color-text-secondary)' }
     : null
 
+  // Raw hex values for Framer Motion animate (CSS variables aren't interpolatable)
   const borderColor =
-    status === 'busted'                ? 'var(--color-rose)'
-    : status === 'pending_confirmation'  ? '#6366F1'
-    : status === 'pending_vote'          ? '#4A6000'
+    status === 'busted'                ? '#FF5FCC'
+    : status === 'pending_confirmation'  ? '#818CF8'
     : status === 'rejected'              ? '#3A3A5A'
-    : 'var(--color-border)'
+    : '#3A3A5A'
 
   const bgColor =
     status === 'busted'                ? 'rgba(255,95,204,0.08)'
     : status === 'pending_confirmation'  ? 'rgba(99,102,241,0.08)'
-    : status === 'pending_vote'          ? 'rgba(80,120,0,0.08)'
     : 'var(--color-surface)'
 
   return (
@@ -429,7 +453,7 @@ function CellCard({
       onClick={onClick}
       animate={{ borderColor }}
       transition={{ duration: 0.35 }}
-      style={{ ...styles.cell, minHeight, cursor: 'pointer', background: bgColor }}
+      style={{ ...styles.cell, cursor: 'pointer', background: bgColor }}
     >
       {/* Ligne du haut : avatar + pseudo */}
       <div style={styles.cellTop}>
@@ -468,9 +492,9 @@ function formatDate(iso: string): string {
 
 const styles: Record<string, React.CSSProperties> = {
   page: {
-    minHeight: '100vh',
+    minHeight: '100dvh',
     background: 'var(--color-bg)',
-    padding: '1.5rem 1rem 6rem',
+    padding: '1.5rem clamp(0.75rem, 3vw, 1.25rem) calc(5rem + env(safe-area-inset-bottom, 0px))',
   },
   bingoOverlay: {
     position: 'fixed',
@@ -479,36 +503,51 @@ const styles: Record<string, React.CSSProperties> = {
     flexDirection: 'column',
     alignItems: 'center',
     justifyContent: 'center',
-    background: 'rgba(0,0,0,0.75)',
+    background: 'radial-gradient(ellipse at center, rgba(99,102,241,0.15) 0%, rgba(0,0,0,0.85) 70%)',
     zIndex: 300,
     pointerEvents: 'none',
   },
-  bingoText: {
-    fontSize: '5rem',
+  bingoLetters: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: '0.1em',
+  },
+  bingoLetter: {
+    fontSize: 'clamp(3.5rem, 12vw, 5.5rem)',
     fontWeight: 900,
-    color: '#facc15',
-    letterSpacing: '0.05em',
-    textShadow: '0 0 40px rgba(250,204,21,0.8)',
+    fontFamily: 'var(--font-title)',
+    color: '#FACC15',
+    textShadow: '0 0 30px rgba(250,204,21,0.9), 0 0 60px rgba(255,95,204,0.4), 0 4px 12px rgba(0,0,0,0.5)',
+    display: 'inline-block',
+  },
+  bingoSpace: {
+    width: '0.3em',
   },
   bingoSub: {
     color: 'var(--color-text-primary)',
-    fontSize: '1.1rem',
-    marginTop: '0.5rem',
+    fontSize: 'clamp(0.9rem, 3vw, 1.15rem)',
+    marginTop: '0.75rem',
+    fontFamily: 'var(--font-body)',
+    opacity: 0.9,
   },
   header: {
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'space-between',
+    gap: '0.5rem',
     maxWidth: '520px',
-    margin: '0 auto 1.25rem',
+    margin: '0 auto 1rem',
+    flexWrap: 'wrap' as const,
   },
   weekLabel: {
     color: 'var(--color-text-secondary)',
-    fontSize: '0.85rem',
+    fontSize: 'clamp(0.75rem, 2.5vw, 0.85rem)',
   },
   gridWrapper: {
     maxWidth: '520px',
     margin: '0 auto',
+    width: '100%',
   },
   dot: {
     width: '7px',
@@ -519,14 +558,15 @@ const styles: Record<string, React.CSSProperties> = {
     flex: 1,
     position: 'relative',
     border: '1px solid var(--color-border)',
-    borderRadius: '10px',
-    padding: '7px 8px 20px',
+    borderRadius: 'clamp(6px, 2vw, 10px)',
+    padding: 'clamp(4px, 1.5vw, 7px) clamp(5px, 1.5vw, 8px) 20px',
     textAlign: 'left',
     display: 'flex',
     flexDirection: 'column',
-    gap: '4px',
+    gap: '3px',
     overflow: 'hidden',
     background: 'var(--color-surface)',
+    minWidth: 0,
   },
   cellTop: {
     display: 'flex',
@@ -595,13 +635,14 @@ const styles: Record<string, React.CSSProperties> = {
   },
   bingoPill: {
     background: 'rgba(255,95,204,0.15)',
-    color: 'var(--color-rose)',
-    border: '1px solid var(--color-rose)',
+    color: '#FF5FCC',
+    border: '1px solid #FF5FCC',
     borderRadius: '999px',
     padding: '0.3rem 0.875rem',
     fontSize: '0.8rem',
     fontWeight: 700,
     fontFamily: 'var(--font-body)',
+    boxShadow: '0 0 8px rgba(255,95,204,0.3)',
   },
   emptyState: {
     textAlign: 'center',
@@ -621,14 +662,14 @@ const styles: Record<string, React.CSSProperties> = {
     marginTop: '1rem',
   },
   error: {
-    color: '#ff6b6b',
+    color: 'var(--color-error)',
     textAlign: 'center',
     fontSize: '0.875rem',
   },
   fab: {
     position: 'fixed',
-    bottom: '5rem',
-    right: '1.25rem',
+    bottom: 'calc(4.5rem + env(safe-area-inset-bottom, 0px))',
+    right: 'clamp(0.75rem, 3vw, 1.25rem)',
     width: '52px',
     height: '52px',
     borderRadius: '50%',
@@ -670,7 +711,7 @@ const styles: Record<string, React.CSSProperties> = {
   inviteSheet: {
     background: 'var(--color-surface)',
     borderRadius: '1.5rem 1.5rem 0 0',
-    padding: '1rem 1.5rem 2.5rem',
+    padding: '1rem 1.5rem calc(2.5rem + env(safe-area-inset-bottom, 0px))',
     width: '100%',
     maxWidth: '560px',
     margin: '0 auto',

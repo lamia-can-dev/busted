@@ -435,7 +435,7 @@ const styles: Record<string, React.CSSProperties> = {
     cursor: 'not-allowed',
   },
   error: {
-    color: '#ff6b6b',
+    color: 'var(--color-error)',
     fontSize: '0.875rem',
     margin: 0,
   },

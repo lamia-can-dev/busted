@@ -379,7 +379,7 @@ const styles: Record<string, React.CSSProperties> = {
     minHeight: '44px',
   },
   error: {
-    color: '#ff6b6b',
+    color: 'var(--color-error)',
     fontSize: '0.875rem',
     margin: 0,
   },

@@ -16,6 +16,16 @@
 
   --color-text-primary: #F0F0FF;
   --color-text-secondary: #555577;
+
+  --color-success: #22c55e;
+  --color-error: #ef4444;
+  --color-warning: #facc15;
+
+  --color-surface-elevated: #12122A;
+  --color-muted: #7878AA;
+
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --nav-height: calc(3.5rem + var(--safe-bottom));
 }
 
 *, *::before, *::after {
@@ -24,18 +34,62 @@
   padding: 0;
 }
 
+html {
+  -webkit-text-size-adjust: 100%;
+  overflow-y: scroll;
+}
+
 body {
   font-family: var(--font-body);
   background: var(--color-bg);
   color: var(--color-text-primary);
   line-height: 1.5;
   -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  overscroll-behavior-y: contain;
 }
 
 #root {
   background: var(--color-bg);
+  min-height: 100dvh;
 }
 
 h1, h2 {
   font-family: var(--font-title);
+}
+
+/* ─── Touch feedback for all interactive elements ─── */
+button, [role="button"] {
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+
+button:active:not(:disabled),
+[role="button"]:active:not(:disabled) {
+  opacity: 0.75;
+  transform: scale(0.97);
+  transition: opacity 0.1s, transform 0.1s;
+}
+
+/* ─── Inputs ─── */
+input, textarea, select {
+  font-family: inherit;
+  font-size: 16px; /* prevents iOS zoom on focus */
+}
+
+/* ─── Scrollbar styling (subtle) ─── */
+::-webkit-scrollbar {
+  width: 4px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--color-border);
+  border-radius: 2px;
+}
+
+/* ─── Safe area utility classes ─── */
+.safe-bottom {
+  padding-bottom: var(--safe-bottom);
 }

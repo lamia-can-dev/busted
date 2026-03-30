@@ -45,18 +45,12 @@ export default function ProofSheet({ cell, onClose, onSubmitted }: Props) {
     setLoading(true)
     setError(null)
 
-    const { data: existing } = await supabase
+    // Delete any previous submission (e.g. if the cell was rejected)
+    await supabase
       .from('submissions')
-      .select('id')
+      .delete()
       .eq('cell_id', cell.id)
       .eq('submitter_user_id', session.userId)
-      .maybeSingle()
-
-    if (existing) {
-      setError('Tu as déjà soumis une preuve pour cette case.')
-      setLoading(false)
-      return
-    }
 
     let proofImageUrl: string | null = null
     if (imageFile) {
@@ -238,9 +232,9 @@ const styles: Record<string, React.CSSProperties> = {
     alignItems: 'flex-end',
   },
   sheet: {
-    background: '#1A1A2E',
+    background: 'var(--color-surface)',
     borderRadius: '20px 20px 0 0',
-    padding: '0.75rem 1.5rem 2.5rem',
+    padding: '0.75rem 1.5rem calc(2.5rem + env(safe-area-inset-bottom, 0px))',
     width: '100%',
     maxWidth: '560px',
     margin: '0 auto',
@@ -249,12 +243,12 @@ const styles: Record<string, React.CSSProperties> = {
   handle: {
     width: '32px',
     height: '3px',
-    background: '#3A3A5A',
+    background: 'var(--color-border)',
     borderRadius: '2px',
     margin: '0 auto 1.25rem',
   },
   toast: {
-    background: '#22c55e',
+    background: 'var(--color-success)',
     color: '#fff',
     fontFamily: 'var(--font-body)',
     fontWeight: 700,
@@ -268,7 +262,7 @@ const styles: Record<string, React.CSSProperties> = {
     fontFamily: 'var(--font-title)',
     fontWeight: 900,
     fontSize: '13px',
-    color: '#F0F0FF',
+    color: 'var(--color-text-primary)',
     margin: '0 0 0.25rem',
     textTransform: 'uppercase' as const,
     letterSpacing: '0.04em',
@@ -277,7 +271,7 @@ const styles: Record<string, React.CSSProperties> = {
     fontFamily: 'var(--font-body)',
     fontWeight: 400,
     fontSize: '11px',
-    color: '#7878AA',
+    color: 'var(--color-muted)',
     margin: '0 0 1.25rem',
     lineHeight: 1.4,
     overflow: 'hidden',
@@ -290,10 +284,10 @@ const styles: Record<string, React.CSSProperties> = {
     gap: '0.75rem',
   },
   textarea: {
-    background: '#0F0F1A',
-    border: '1px solid #3A3A5A',
+    background: 'var(--color-bg)',
+    border: '1px solid var(--color-border)',
     borderRadius: '12px',
-    color: '#F0F0FF',
+    color: 'var(--color-text-primary)',
     fontSize: '13px',
     fontFamily: 'var(--font-body)',
     padding: '12px',
@@ -310,10 +304,10 @@ const styles: Record<string, React.CSSProperties> = {
   },
   photoBtn: {
     flex: 1,
-    background: '#0F0F1A',
-    border: '1px solid #3A3A5A',
+    background: 'var(--color-bg)',
+    border: '1px solid var(--color-border)',
     borderRadius: '10px',
-    color: '#7878AA',
+    color: 'var(--color-muted)',
     fontFamily: 'var(--font-body)',
     padding: '0.625rem 0.5rem',
     cursor: 'pointer',
@@ -326,7 +320,7 @@ const styles: Record<string, React.CSSProperties> = {
   photoBtnLabel: {
     fontSize: '10px',
     fontWeight: 600,
-    color: '#7878AA',
+    color: 'var(--color-muted)',
   },
   thumbRow: {
     display: 'flex',
@@ -351,8 +345,8 @@ const styles: Record<string, React.CSSProperties> = {
     width: '18px',
     height: '18px',
     borderRadius: '50%',
-    background: '#3A3A5A',
-    color: '#F0F0FF',
+    background: 'var(--color-border)',
+    color: 'var(--color-text-primary)',
     border: 'none',
     cursor: 'pointer',
     fontSize: '9px',
@@ -367,7 +361,7 @@ const styles: Record<string, React.CSSProperties> = {
     gap: '0.5rem',
   },
   submitBtn: {
-    background: '#4338CA',
+    background: 'var(--color-indigo)',
     color: '#ffffff',
     border: 'none',
     borderRadius: '13px',
@@ -380,14 +374,14 @@ const styles: Record<string, React.CSSProperties> = {
     minHeight: '44px',
   },
   submitBtnDisabled: {
-    background: '#2A2A4A',
-    color: '#555577',
+    background: 'var(--color-border)',
+    color: 'var(--color-text-secondary)',
     cursor: 'not-allowed',
   },
   cancelBtn: {
     background: 'transparent',
-    color: '#F0F0FF',
-    border: '1px solid #3A3A5A',
+    color: 'var(--color-text-primary)',
+    border: '1px solid var(--color-border)',
     borderRadius: '13px',
     padding: '0.875rem',
     fontFamily: 'var(--font-body)',
@@ -398,7 +392,7 @@ const styles: Record<string, React.CSSProperties> = {
     minHeight: '44px',
   },
   error: {
-    color: '#ef4444',
+    color: 'var(--color-error)',
     fontSize: '0.875rem',
     fontFamily: 'var(--font-body)',
     margin: 0,

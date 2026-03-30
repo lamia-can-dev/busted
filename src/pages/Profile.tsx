@@ -115,9 +115,9 @@ export default function Profile() {
 
 const styles: Record<string, React.CSSProperties> = {
   page: {
-    minHeight: '100vh',
+    minHeight: '100dvh',
     background: 'var(--color-bg)',
-    paddingBottom: '6rem',
+    paddingBottom: 'calc(5rem + env(safe-area-inset-bottom, 0px))',
   },
   header: {
     padding: '1.5rem 1.25rem 0.5rem',

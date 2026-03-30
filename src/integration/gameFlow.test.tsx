@@ -261,23 +261,12 @@ describe('Game + CellSheet + ProofSheet', () => {
     expect(screen.getByRole('button', { name: /envoyer au groupe/i })).toBeDisabled()
   })
 
-  it('ProofSheet shows already-submitted error within Game flow', async () => {
-    // Game loadGrid needs submissions as an empty array so cells render with submission=null
-    // ProofSheet's duplicate check (maybeSingle) needs to return an existing submission
-    let submissionsCallCount = 0
+  it('ProofSheet allows re-submission (deletes old, inserts new)', async () => {
+    // ProofSheet now deletes old submissions before inserting new ones
     vi.mocked(supabase.from).mockImplementation((table: string) => {
       if (table === 'grids') return makeQueryBuilder({ data: [GRID], error: null }) as ReturnType<typeof supabase.from>
       if (table === 'cells') return makeQueryBuilder({ data: CELLS, error: null }) as ReturnType<typeof supabase.from>
       if (table === 'users') return makeQueryBuilder({ data: USERS, error: null }) as ReturnType<typeof supabase.from>
-      if (table === 'submissions') {
-        submissionsCallCount++
-        // First call: Game's loadGrid — return empty array so cells have no submission
-        // Second call: ProofSheet's duplicate check — return existing submission
-        if (submissionsCallCount === 1) {
-          return makeQueryBuilder({ data: [], error: null }) as ReturnType<typeof supabase.from>
-        }
-        return makeQueryBuilder({ data: { id: 'existing-sub' }, error: null }) as ReturnType<typeof supabase.from>
-      }
       return makeQueryBuilder({ data: null, error: null }) as ReturnType<typeof supabase.from>
     })
 
@@ -290,8 +279,9 @@ describe('Game + CellSheet + ProofSheet', () => {
 
     // ProofSheet opens
     await screen.findByPlaceholderText(/décris ce qui/i)
-    await userEvent.type(screen.getByPlaceholderText(/décris ce qui/i), 'Proof')
+    await userEvent.type(screen.getByPlaceholderText(/décris ce qui/i), 'New proof')
     await userEvent.click(screen.getByRole('button', { name: /envoyer au groupe/i }))
-    await screen.findByText('Tu as déjà soumis une preuve pour cette case.')
+    // Should show success toast (no duplicate error)
+    await screen.findByText(/preuve envoyée/i)
   })
 })

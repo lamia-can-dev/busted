@@ -5,6 +5,7 @@ import { supabase } from '../lib/supabase'
 import { getSession } from '../lib/session'
 import type { User } from '../../supabase/types'
 import { checkLines, checkColumns, checkDiagonals } from '../lib/bingoUtils'
+import { isValidated, normalizeStatus } from '../lib/cellStatus'
 import Logo from '../components/Logo'
 
 // ─── Types ────────────────────────────────────────────────────
@@ -132,7 +133,7 @@ export default function Leaderboard() {
       if (!ownerUserId) continue
       const owner = scoreMap.get(ownerUserId)
       if (!owner) continue
-      if (cell.status === 'busted' || cell.status === 'pending_vote') owner.validatedCells += 1
+      if (isValidated(cell.status)) owner.validatedCells += 1
       if (!cellsByGrid.has(cell.grid_id)) cellsByGrid.set(cell.grid_id, { ownerUserId, cells: [] })
       cellsByGrid.get(cell.grid_id)!.cells.push(cell)
     }
@@ -146,7 +147,7 @@ export default function Leaderboard() {
       if (gridSize * gridSize !== gridCells.length) continue
 
       const bingoCells = gridCells.map((c) => ({
-        status: (c.status === 'busted' || c.status === 'pending_vote' ? 'busted' : 'unchecked') as 'busted' | 'unchecked',
+        status: normalizeStatus(c.status),
       }))
 
       const allLines: number[][] = []
@@ -298,7 +299,7 @@ export default function Leaderboard() {
                       <DetailRow
                         label="Lignes bingo"
                         value={player.bingos}
-                        color="#22c55e"
+                        color="var(--color-success)"
                       />
                       <DetailRow
                         label="Cases validées"
@@ -308,7 +309,7 @@ export default function Leaderboard() {
                       {player.firstBingoAt && (
                         <div style={styles.detailRow}>
                           <span style={styles.detailLabel}>Premier bingo</span>
-                          <span style={{ ...styles.detailCount, color: '#22c55e' }}>
+                          <span style={{ ...styles.detailCount, color: 'var(--color-success)' }}>
                             {new Date(player.firstBingoAt).toLocaleString('fr-FR', { weekday: 'short', hour: '2-digit', minute: '2-digit' })}
                           </span>
                         </div>
@@ -340,9 +341,9 @@ function DetailRow({ label, value, color }: { label: string; value: number; colo
 
 const styles: Record<string, React.CSSProperties> = {
   page: {
-    minHeight: '100vh',
+    minHeight: '100dvh',
     background: 'var(--color-bg)',
-    paddingBottom: '6rem',
+    paddingBottom: 'calc(5rem + env(safe-area-inset-bottom, 0px))',
   },
   header: {
     padding: '1.5rem 1.25rem 1.25rem',
