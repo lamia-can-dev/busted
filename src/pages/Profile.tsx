@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+
 import { supabase } from '../lib/supabase'
-import { getSession, clearSession } from '../lib/session'
+import { useAuth } from '../contexts/AuthContext'
 import Logo from '../components/Logo'
 
 interface UserProfile {
@@ -19,7 +20,7 @@ interface GroupInfo {
 
 export default function Profile() {
   const navigate = useNavigate()
-  const session = getSession()
+  const { userId, groupId, signOut } = useAuth()
   const [user, setUser] = useState<UserProfile | null>(null)
   const [group, setGroup] = useState<GroupInfo | null>(null)
   const [memberCount, setMemberCount] = useState(0)
@@ -27,17 +28,14 @@ export default function Profile() {
   const [copied, setCopied] = useState(false)
 
   useEffect(() => {
-    if (!session) { navigate('/'); return }
     loadProfile()
   }, [])
 
   async function loadProfile() {
-    if (!session) return
-
     const [userRes, groupRes, membersRes] = await Promise.all([
-      supabase.from('users').select('*').eq('id', session.userId).single(),
-      supabase.from('groups').select('id, name, invite_code').eq('id', session.groupId).single(),
-      supabase.from('users').select('id', { count: 'exact', head: true }).eq('group_id', session.groupId),
+      supabase.from('users').select('*').eq('id', userId!).single(),
+      supabase.from('groups').select('id, name, invite_code').eq('id', groupId!).single(),
+      supabase.from('users').select('id', { count: 'exact', head: true }).eq('group_id', groupId!),
     ])
 
     if (userRes.data) setUser(userRes.data as UserProfile)
@@ -53,12 +51,10 @@ export default function Profile() {
     setTimeout(() => setCopied(false), 2000)
   }
 
-  function handleLogout() {
-    clearSession()
+  async function handleLogout() {
+    await signOut()
     navigate('/')
   }
-
-  if (!session) return null
 
   return (
     <div style={styles.page}>

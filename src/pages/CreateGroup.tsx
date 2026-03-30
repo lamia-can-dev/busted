@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
-import { getSession } from '../lib/session'
+import { useAuth } from '../contexts/AuthContext'
 import Logo from '../components/Logo'
 
 function generateInviteCode(): string {
@@ -24,10 +24,21 @@ const DURATION_OPTIONS = [
 
 export default function CreateGroup() {
   const navigate = useNavigate()
+  const { userId, groupId } = useAuth()
 
   useEffect(() => {
-    if (getSession()) navigate('/game')
-  }, [])
+    if (!userId) {
+      navigate('/')
+    } else if (groupId) {
+      navigate('/game')
+    } else {
+      const pendingInvite = sessionStorage.getItem('busted_pending_invite')
+      if (pendingInvite) {
+        sessionStorage.removeItem('busted_pending_invite')
+        navigate(`/join/${pendingInvite}`)
+      }
+    }
+  }, [userId, groupId])
 
   const [mode, setMode] = useState<Mode>('create')
   const [createStep, setCreateStep] = useState<1 | 2>(1)
@@ -45,13 +56,6 @@ export default function CreateGroup() {
     setError(null)
 
     const invite_code = generateInviteCode()
-
-    const { error: authError } = await supabase.auth.signInAnonymously()
-    if (authError) {
-      setError("Erreur d'authentification : " + authError.message)
-      setLoading(false)
-      return
-    }
 
     const { error: dbError } = await supabase
       .from('groups')
@@ -221,6 +225,7 @@ export default function CreateGroup() {
             </button>
           </form>
         )}
+
       </div>
     </main>
   )

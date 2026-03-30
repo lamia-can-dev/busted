@@ -12,19 +12,17 @@ vi.mock('../lib/supabase', () => ({
   },
 }))
 
-vi.mock('../lib/session', () => ({
-  getSession: vi.fn(),
+vi.mock('../contexts/AuthContext', () => ({
+  useAuth: vi.fn(),
 }))
 
 vi.mock('../lib/generateGrid', () => ({
   generateGridFromPool: vi.fn(),
 }))
 
-import { getSession } from '../lib/session'
+import { useAuth } from '../contexts/AuthContext'
 import { generateGridFromPool } from '../lib/generateGrid'
 import Game from './Game'
-
-const mockSession = { userId: 'user-1', groupId: 'group-1', refreshToken: null }
 
 const mockGrid = {
   id: 'grid-1',
@@ -58,29 +56,18 @@ function mockFromByTable(overrides: Record<string, { data: unknown; error: unkno
 
 beforeEach(() => {
   vi.clearAllMocks()
+  vi.mocked(useAuth).mockReturnValue({ userId: 'user-1', groupId: 'group-1', loading: false, signOut: vi.fn(), refreshGroupId: vi.fn() })
   vi.mocked(supabase.channel).mockReturnValue(makeChannelMock() as unknown as ReturnType<typeof supabase.channel>)
+  localStorage.setItem('busted_tutorial_done', 'true')
   Object.defineProperty(navigator, 'clipboard', {
     value: { writeText: vi.fn().mockResolvedValue(undefined) },
     writable: true,
   })
 })
 
-// --- No session ---
-
-describe('Game — no session', () => {
-  it('returns null when no session', () => {
-    vi.mocked(getSession).mockReturnValue(null)
-    mockFromByTable()
-    const { container } = render(<MemoryRouter><Game /></MemoryRouter>)
-    expect(container.firstChild).toBeNull()
-  })
-})
-
 // --- No grid yet ---
 
 describe('Game — no grid', () => {
-  beforeEach(() => vi.mocked(getSession).mockReturnValue(mockSession))
-
   it('shows loading state initially', () => {
     mockFromByTable({ grids: { data: [], error: null } })
     render(<MemoryRouter><Game /></MemoryRouter>)
@@ -153,7 +140,6 @@ describe('Game — no grid', () => {
 
 describe('Game — grid with cells', () => {
   beforeEach(() => {
-    vi.mocked(getSession).mockReturnValue(mockSession)
     mockFromByTable({
       grids: { data: [mockGrid], error: null },
       cells: { data: mockCells, error: null },
@@ -261,7 +247,6 @@ describe('Game — grid with cells', () => {
 
 describe('Game — bingo detection', () => {
   it('shows bingo badge when a row is fully validated', async () => {
-    vi.mocked(getSession).mockReturnValue(mockSession)
     const cells = Array.from({ length: 9 }, (_, i) => ({
       id: `cell-${i}`, grid_id: 'grid-1', target_user_id: 'user-2',
       content: `pari-${i}`, position: i, is_auto_generated: false,
@@ -280,7 +265,6 @@ describe('Game — bingo detection', () => {
   })
 
   it('shows Busted ! status on busted cells', async () => {
-    vi.mocked(getSession).mockReturnValue(mockSession)
     const cells = Array.from({ length: 9 }, (_, i) => ({
       id: `cell-${i}`, grid_id: 'grid-1', target_user_id: 'user-2',
       content: `pari-${i}`, position: i, is_auto_generated: false,
@@ -298,7 +282,6 @@ describe('Game — bingo detection', () => {
   })
 
   it('shows Busted ! on validated non-bingo cells', async () => {
-    vi.mocked(getSession).mockReturnValue(mockSession)
     const cells = Array.from({ length: 9 }, (_, i) => ({
       id: `cell-${i}`, grid_id: 'grid-1', target_user_id: 'user-2',
       content: `pari-${i}`, position: i, is_auto_generated: false,
@@ -317,7 +300,6 @@ describe('Game — bingo detection', () => {
   })
 
   it('shows Rejeté on rejected cells', async () => {
-    vi.mocked(getSession).mockReturnValue(mockSession)
     const cells = Array.from({ length: 9 }, (_, i) => ({
       id: `cell-${i}`, grid_id: 'grid-1', target_user_id: 'user-2',
       content: `pari-${i}`, position: i, is_auto_generated: false,
@@ -335,7 +317,6 @@ describe('Game — bingo detection', () => {
   })
 
   it('shows En attente de validation on pending cells', async () => {
-    vi.mocked(getSession).mockReturnValue(mockSession)
     const cells = Array.from({ length: 9 }, (_, i) => ({
       id: `cell-${i}`, grid_id: 'grid-1', target_user_id: 'user-2',
       content: `pari-${i}`, position: i, is_auto_generated: false,

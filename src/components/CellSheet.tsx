@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { supabase } from '../lib/supabase'
-import { getSession } from '../lib/session'
+import { useAuth } from '../contexts/AuthContext'
 import type { CellStatus } from '../lib/cellStatus'
 
 interface CellSheetCell {
@@ -31,7 +31,7 @@ function formatDate(iso: string): string {
 }
 
 export default function CellSheet({ cell, onClose, onSubmitProof, onUpdated }: Props) {
-  const session = getSession()
+  const { userId } = useAuth()
   const [loading, setLoading] = useState(false)
   const [toast, setToast] = useState<string | null>(null)
 
@@ -39,8 +39,8 @@ export default function CellSheet({ cell, onClose, onSubmitProof, onUpdated }: P
   const effectiveStatus = cell.status
   const isBusted = effectiveStatus === 'busted'
 
-  const isTarget    = session?.userId === cell.target_user_id
-  const isSubmitter = session?.userId === cell.submission?.submitter_user_id
+  const isTarget    = userId === cell.target_user_id
+  const isSubmitter = userId === cell.submission?.submitter_user_id
   const isPendingConfirmation = effectiveStatus === 'pending_confirmation'
 
   async function handleConfirm() {
@@ -50,7 +50,7 @@ export default function CellSheet({ cell, onClose, onSubmitProof, onUpdated }: P
     if (cell.submission) {
       await supabase.from('votes').insert({
         submission_id: cell.submission.id,
-        voter_user_id: session!.userId,
+        voter_user_id: userId!,
         is_valid: true,
       })
     }
@@ -65,7 +65,7 @@ export default function CellSheet({ cell, onClose, onSubmitProof, onUpdated }: P
     if (cell.submission) {
       await supabase.from('votes').insert({
         submission_id: cell.submission.id,
-        voter_user_id: session!.userId,
+        voter_user_id: userId!,
         is_valid: false,
       })
     }

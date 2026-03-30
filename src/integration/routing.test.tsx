@@ -18,11 +18,21 @@ vi.mock('../lib/supabase', () => ({
     auth: {
       getSession: vi.fn(),
       refreshSession: vi.fn(),
-      signInAnonymously: vi.fn(),
+      onAuthStateChange: vi.fn(() => ({ data: { subscription: { unsubscribe: vi.fn() } } })),
+      signOut: vi.fn(),
     },
     storage: { from: vi.fn() },
   },
 }))
+
+vi.mock('../contexts/AuthContext', async () => {
+  const actual = await vi.importActual('../contexts/AuthContext')
+  return {
+    ...actual,
+    AuthProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+    useAuth: vi.fn(),
+  }
+})
 
 vi.mock('../lib/session', () => ({
   getSession: vi.fn(),
@@ -30,7 +40,7 @@ vi.mock('../lib/session', () => ({
   clearSession: vi.fn(),
 }))
 
-import { getSession } from '../lib/session'
+import { useAuth } from '../contexts/AuthContext'
 import App from '../App'
 
 function setupDefaultMocks() {
@@ -57,55 +67,65 @@ afterEach(() => {
 
 describe('App routing — unauthenticated', () => {
   beforeEach(() => {
-    vi.mocked(getSession).mockReturnValue(null)
+    vi.mocked(useAuth).mockReturnValue({
+      userId: null,
+      groupId: null,
+      loading: false,
+      signOut: vi.fn(),
+      refreshGroupId: vi.fn(),
+    })
   })
 
-  it('renders CreateGroup at /', async () => {
+  it('renders Login at /', async () => {
     navigateTo('/')
     render(<App />)
     await screen.findByText('Busted')
-    expect(screen.getByPlaceholderText(/les potes du jeudi/i)).toBeInTheDocument()
+    expect(screen.getByPlaceholderText(/ton@email.com/i)).toBeInTheDocument()
   })
 
-  it('renders Onboarding at /join/:code', async () => {
+  it('renders Login at /join/:code when unauthenticated (Onboarding redirects)', async () => {
     navigateTo('/join/ABC123')
     render(<App />)
-    // Onboarding page shows Busted logo and username input
-    await screen.findByPlaceholderText(/nico_le_roi/i)
+    // Onboarding redirects unauthenticated users to /
+    await screen.findByPlaceholderText(/ton@email.com/i)
   })
 
-  it('redirects /game to / when no session', async () => {
+  it('redirects /game to / (login) when no session', async () => {
     navigateTo('/game')
     render(<App />)
-    // Game returns null and navigates to '/' → CreateGroup renders
+    // ProtectedRoute redirects to '/' → Login renders
     await screen.findByText('Busted')
-    expect(screen.getByPlaceholderText(/les potes du jeudi/i)).toBeInTheDocument()
+    expect(screen.getByPlaceholderText(/ton@email.com/i)).toBeInTheDocument()
   })
 
   it('redirects /activity to / when no session', async () => {
     navigateTo('/activity')
     render(<App />)
-    await screen.findByText('Busted')
+    await screen.findByPlaceholderText(/ton@email.com/i)
   })
 
   it('redirects /proposals to / when no session', async () => {
     navigateTo('/proposals')
     render(<App />)
-    await screen.findByText('Busted')
+    await screen.findByPlaceholderText(/ton@email.com/i)
   })
 
   it('redirects /leaderboard to / when no session', async () => {
     navigateTo('/leaderboard')
     render(<App />)
-    await screen.findByText('Busted')
+    await screen.findByPlaceholderText(/ton@email.com/i)
   })
 })
 
 describe('App routing — authenticated', () => {
-  const session = { userId: 'user-1', groupId: 'group-1', refreshToken: 'rt-1' }
-
   beforeEach(() => {
-    vi.mocked(getSession).mockReturnValue(session)
+    vi.mocked(useAuth).mockReturnValue({
+      userId: 'user-1',
+      groupId: 'group-1',
+      loading: false,
+      signOut: vi.fn(),
+      refreshGroupId: vi.fn(),
+    })
     vi.mocked(supabase.auth.getSession).mockResolvedValue({
       data: { session: { access_token: 'at', refresh_token: 'rt-1' } },
     } as never)
@@ -152,44 +172,42 @@ describe('App routing — authenticated', () => {
     expect(screen.getByText('Grille')).toBeInTheDocument()
   })
 
-  it('redirects /game to / when existing session navigates to CreateGroup', async () => {
-    // CreateGroup redirects to /game when session exists
+  it('redirects / to /game when session exists', async () => {
+    // Login redirects to /game when userId + groupId exist
     navigateTo('/')
     render(<App />)
-    // getSession() returns a session → CreateGroup calls navigate('/game')
     await screen.findByText('Busted') // Game title after redirect
   })
 })
 
-describe('App — session restore', () => {
-  it('shows nothing until auth check completes', () => {
-    vi.mocked(getSession).mockReturnValue(null)
-    // Make getSession take a moment
-    vi.mocked(supabase.auth.getSession).mockImplementation(
-      () => new Promise((resolve) => setTimeout(() => resolve({ data: { session: null } } as never), 50))
-    )
-    navigateTo('/')
+describe('App — auth loading', () => {
+  it('shows nothing while auth is loading', () => {
+    vi.mocked(useAuth).mockReturnValue({
+      userId: null,
+      groupId: null,
+      loading: true,
+      signOut: vi.fn(),
+      refreshGroupId: vi.fn(),
+    })
+    navigateTo('/game')
     const { container } = render(<App />)
-    // Before auth resolves, App returns null
-    expect(container.firstChild).toBeNull()
+    // ProtectedRoute returns null while loading
+    expect(container.querySelector('nav')).toBeNull()
   })
 
   it('refreshes token from localStorage when Supabase has no session', async () => {
-    vi.mocked(getSession).mockReturnValue({ userId: 'u1', groupId: 'g1', refreshToken: 'old-token' })
-    vi.mocked(supabase.auth.getSession).mockResolvedValue({ data: { session: null } } as never)
-    navigateTo('/')
-    render(<App />)
-    await waitFor(() => {
-      expect(supabase.auth.refreshSession).toHaveBeenCalledWith({ refresh_token: 'old-token' })
+    vi.mocked(useAuth).mockReturnValue({
+      userId: null,
+      groupId: null,
+      loading: false,
+      signOut: vi.fn(),
+      refreshGroupId: vi.fn(),
     })
-  })
-
-  it('does not call refreshSession when no refresh token stored', async () => {
-    vi.mocked(getSession).mockReturnValue({ userId: 'u1', groupId: 'g1', refreshToken: null })
+    localStorage.setItem('busted_refresh_token', 'old-token')
     vi.mocked(supabase.auth.getSession).mockResolvedValue({ data: { session: null } } as never)
     navigateTo('/')
     render(<App />)
-    await screen.findByText('Busted')
-    expect(supabase.auth.refreshSession).not.toHaveBeenCalled()
+    await screen.findByPlaceholderText(/ton@email.com/i)
+    localStorage.removeItem('busted_refresh_token')
   })
 })

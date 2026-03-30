@@ -12,14 +12,12 @@ vi.mock('../lib/supabase', () => ({
   },
 }))
 
-vi.mock('../lib/session', () => ({
-  getSession: vi.fn(),
+vi.mock('../contexts/AuthContext', () => ({
+  useAuth: vi.fn(),
 }))
 
-import { getSession } from '../lib/session'
+import { useAuth } from '../contexts/AuthContext'
 import Leaderboard from './Leaderboard'
-
-const mockSession = { userId: 'user-1', groupId: 'group-1', refreshToken: null }
 
 // ─── Countdown helpers (replicated) ─────────────────────────
 
@@ -116,30 +114,20 @@ function mockLeaderboardData(opts: {
 
 beforeEach(() => {
   vi.clearAllMocks()
+  vi.mocked(useAuth).mockReturnValue({ userId: 'user-1', groupId: 'group-1', loading: false, signOut: vi.fn(), refreshGroupId: vi.fn() })
   vi.mocked(supabase.channel).mockReturnValue(makeChannelMock() as unknown as ReturnType<typeof supabase.channel>)
 })
 
 // ─── Component ────────────────────────────────────────────────
 
-describe('Leaderboard — no session', () => {
-  it('returns null and navigates away', () => {
-    vi.mocked(getSession).mockReturnValue(null)
-    mockLeaderboardData({})
-    const { container } = render(<MemoryRouter><Leaderboard /></MemoryRouter>)
-    expect(container.firstChild).toBeNull()
-  })
-})
-
 describe('Leaderboard — loading and empty', () => {
   it('shows loading state initially', () => {
-    vi.mocked(getSession).mockReturnValue(mockSession)
     mockLeaderboardData({})
     render(<MemoryRouter><Leaderboard /></MemoryRouter>)
     expect(screen.getByText('Chargement...')).toBeInTheDocument()
   })
 
   it('shows empty message when no members', async () => {
-    vi.mocked(getSession).mockReturnValue(mockSession)
     mockLeaderboardData({ members: [] })
     render(<MemoryRouter><Leaderboard /></MemoryRouter>)
     await screen.findByText('Aucun membre dans le groupe.')
@@ -148,7 +136,6 @@ describe('Leaderboard — loading and empty', () => {
 
 describe('Leaderboard — player cards', () => {
   it('renders member usernames', async () => {
-    vi.mocked(getSession).mockReturnValue(mockSession)
     mockLeaderboardData({ members: [makeUser('user-1', 'Alice'), makeUser('user-2', 'Bob')] })
     render(<MemoryRouter><Leaderboard /></MemoryRouter>)
     await screen.findByText('Alice')
@@ -156,14 +143,12 @@ describe('Leaderboard — player cards', () => {
   })
 
   it('shows medal for rank 1', async () => {
-    vi.mocked(getSession).mockReturnValue(mockSession)
     mockLeaderboardData({ members: [makeUser('user-1', 'Alice')] })
     render(<MemoryRouter><Leaderboard /></MemoryRouter>)
     await screen.findByText('🥇')
   })
 
   it('shows #4 for rank beyond 3', async () => {
-    vi.mocked(getSession).mockReturnValue(mockSession)
     mockLeaderboardData({
       members: [
         makeUser('user-1', 'A'), makeUser('user-2', 'B'),
@@ -175,14 +160,12 @@ describe('Leaderboard — player cards', () => {
   })
 
   it('shows "Toi" badge for current user', async () => {
-    vi.mocked(getSession).mockReturnValue(mockSession)
     mockLeaderboardData({ members: [makeUser('user-1', 'Alice')] })
     render(<MemoryRouter><Leaderboard /></MemoryRouter>)
     await screen.findByText('Toi')
   })
 
   it('shows bingo count when player has bingo', async () => {
-    vi.mocked(getSession).mockReturnValue(mockSession)
     // First row (positions 0,1,2) are busted => triggers 1 bingo line
     const cells = Array.from({ length: 9 }, (_, i) =>
       makeCell('grid-1', 'user-1', `c${i}`, 'user-2', i < 3 ? 'busted' : 'unchecked')
@@ -193,7 +176,6 @@ describe('Leaderboard — player cards', () => {
   })
 
   it('shows validated cells count when no bingo', async () => {
-    vi.mocked(getSession).mockReturnValue(mockSession)
     // Need a proper 3x3 grid so 1 validated cell doesn't trigger a bingo
     const cells = Array.from({ length: 9 }, (_, i) =>
       makeCell('grid-1', 'user-1', `c${i}`, 'user-2', i === 0 ? 'busted' : 'unchecked')
@@ -204,7 +186,6 @@ describe('Leaderboard — player cards', () => {
   })
 
   it('shows plural "cases" when validatedCells > 1', async () => {
-    vi.mocked(getSession).mockReturnValue(mockSession)
     // 3x3 grid with 2 busted cells (not forming a line)
     const cells = Array.from({ length: 9 }, (_, i) =>
       makeCell('grid-1', 'user-1', `c${i}`, 'user-2', (i === 0 || i === 4) ? 'busted' : 'unchecked')
@@ -217,7 +198,6 @@ describe('Leaderboard — player cards', () => {
 
 describe('Leaderboard — sorting', () => {
   it('ranks player with bingo above player with only cells', async () => {
-    vi.mocked(getSession).mockReturnValue(mockSession)
     // user-1 has 1 bingo (first row busted), user-2 has 2 validated cells but no bingo
     const cells = [
       ...Array.from({ length: 9 }, (_, i) => makeCell('grid-1', 'user-1', `a${i}`, 'user-3', i < 3 ? 'busted' : 'unchecked')),
@@ -234,7 +214,6 @@ describe('Leaderboard — sorting', () => {
   })
 
   it('ranks by validatedCells when both have 0 bingos', async () => {
-    vi.mocked(getSession).mockReturnValue(mockSession)
     // Full 3x3 grids so partial validation doesn't accidentally trigger bingo
     const cells = [
       ...Array.from({ length: 9 }, (_, i) => makeCell('grid-1', 'user-1', `a${i}`, 'user-3', i === 0 ? 'busted' : 'unchecked')),
@@ -254,7 +233,6 @@ describe('Leaderboard — sorting', () => {
 
 describe('Leaderboard — expand detail panel', () => {
   it('shows detail rows when player card is clicked', async () => {
-    vi.mocked(getSession).mockReturnValue(mockSession)
     mockLeaderboardData({ members: [makeUser('user-1', 'Alice')] })
     render(<MemoryRouter><Leaderboard /></MemoryRouter>)
     await screen.findByText('Alice')
@@ -264,7 +242,6 @@ describe('Leaderboard — expand detail panel', () => {
   })
 
   it('collapses detail when clicked again', async () => {
-    vi.mocked(getSession).mockReturnValue(mockSession)
     mockLeaderboardData({ members: [makeUser('user-1', 'Alice')] })
     render(<MemoryRouter><Leaderboard /></MemoryRouter>)
     await screen.findByText('Alice')
@@ -277,7 +254,6 @@ describe('Leaderboard — expand detail panel', () => {
   })
 
   it('shows countdown header', async () => {
-    vi.mocked(getSession).mockReturnValue(mockSession)
     mockLeaderboardData({ members: [] })
     render(<MemoryRouter><Leaderboard /></MemoryRouter>)
     await screen.findByText('Fin de semaine dans')
@@ -286,7 +262,6 @@ describe('Leaderboard — expand detail panel', () => {
 
 describe('Leaderboard — error handling', () => {
   it('stops loading gracefully when members query errors', async () => {
-    vi.mocked(getSession).mockReturnValue(mockSession)
     vi.mocked(supabase.from).mockImplementation((table: string) => {
       if (table === 'groups') return makeQueryBuilder({ data: { reveal_at: null }, error: null }) as ReturnType<typeof supabase.from>
       return makeQueryBuilder({ data: null, error: { message: 'DB error' } }) as ReturnType<typeof supabase.from>

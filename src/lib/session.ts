@@ -1,3 +1,5 @@
+/** @deprecated Use useAuth() from contexts/AuthContext instead. Kept for Onboarding fallback + existing tests. */
+
 const KEYS = {
   userId: 'busted_user_id',
   groupId: 'busted_group_id',

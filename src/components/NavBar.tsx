@@ -1,16 +1,16 @@
 import { useEffect, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
-import { getSession } from '../lib/session'
+import { useAuth } from '../contexts/AuthContext'
 
 export default function NavBar() {
   const location = useLocation()
   const navigate = useNavigate()
-  const session = getSession()
+  const { userId } = useAuth()
   const [unseenCount, setUnseenCount] = useState(0)
 
   useEffect(() => {
-    if (!session) return
+    if (!userId) return
     setUnseenCount(readUnreadCount())
   }, [location.pathname])
 

@@ -10,17 +10,16 @@ vi.mock('../lib/supabase', () => ({
   },
 }))
 
-vi.mock('../lib/session', () => ({
-  getSession: vi.fn(),
+vi.mock('../contexts/AuthContext', () => ({
+  useAuth: vi.fn(),
 }))
 
-import { getSession } from '../lib/session'
+import { useAuth } from '../contexts/AuthContext'
 import NavBar from './NavBar'
-
-const mockSession = { userId: 'user-1', groupId: 'group-1', refreshToken: null }
 
 beforeEach(() => {
   vi.clearAllMocks()
+  vi.mocked(useAuth).mockReturnValue({ userId: 'user-1', groupId: 'group-1', loading: false, signOut: vi.fn(), refreshGroupId: vi.fn() })
   vi.mocked(supabase.from).mockReturnValue(
     makeQueryBuilder({ data: [], error: null }) as ReturnType<typeof supabase.from>
   )
@@ -36,7 +35,6 @@ function renderNav(path = '/game') {
 
 describe('NavBar', () => {
   it('renders all 4 tabs', () => {
-    vi.mocked(getSession).mockReturnValue(mockSession)
     renderNav()
     expect(screen.getByText('Grille')).toBeInTheDocument()
     expect(screen.getByText('Activité')).toBeInTheDocument()
@@ -45,12 +43,11 @@ describe('NavBar', () => {
   })
 
   it('renders without crashing when no session', () => {
-    vi.mocked(getSession).mockReturnValue(null)
+    vi.mocked(useAuth).mockReturnValue({ userId: null, groupId: null, loading: false, signOut: vi.fn(), refreshGroupId: vi.fn() })
     renderNav()
   })
 
   it('does not show badge when no pending validations', async () => {
-    vi.mocked(getSession).mockReturnValue(mockSession)
     vi.mocked(supabase.from).mockReturnValue(
       makeQueryBuilder({ data: [], error: null }) as ReturnType<typeof supabase.from>
     )
@@ -62,7 +59,6 @@ describe('NavBar', () => {
 
   it('shows badge when user has unseen count in localStorage', async () => {
     localStorage.setItem('busted_unread_count', '3')
-    vi.mocked(getSession).mockReturnValue(mockSession)
     renderNav('/game')
     await waitFor(() => {
       expect(screen.getByText('3')).toBeInTheDocument()

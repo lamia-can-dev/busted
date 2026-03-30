@@ -14,8 +14,8 @@ vi.mock('../lib/supabase', () => ({
   },
 }))
 
-vi.mock('../lib/session', () => ({
-  getSession: vi.fn(),
+vi.mock('../contexts/AuthContext', () => ({
+  useAuth: vi.fn(),
 }))
 
 vi.mock('../lib/suggestChallenges', () => ({
@@ -23,10 +23,8 @@ vi.mock('../lib/suggestChallenges', () => ({
   generateGroupSuggestions: vi.fn().mockResolvedValue(undefined),
 }))
 
-import { getSession } from '../lib/session'
+import { useAuth } from '../contexts/AuthContext'
 import Proposals from './Proposals'
-
-const mockSession = { userId: 'user-1', groupId: 'group-1', refreshToken: null }
 
 const VOTED_KEY = 'busted_voted_proposals'
 
@@ -60,6 +58,7 @@ function makeProposal(overrides: Record<string, unknown> = {}) {
 beforeEach(() => {
   vi.clearAllMocks()
   localStorage.clear()
+  vi.mocked(useAuth).mockReturnValue({ userId: 'user-1', groupId: 'group-1', loading: false, signOut: vi.fn(), refreshGroupId: vi.fn() })
   vi.mocked(supabase.channel).mockReturnValue(makeChannelMock() as unknown as ReturnType<typeof supabase.channel>)
   vi.mocked(supabase.rpc).mockResolvedValue({ data: [{ vote_count: 2, is_approved: false }], error: null } as never)
 })
@@ -97,28 +96,19 @@ describe('vote tracking (localStorage)', () => {
 // ─── Component rendering ───────────────────────────────────────
 
 describe('Proposals — rendering', () => {
-  it('redirects when no session', () => {
-    vi.mocked(getSession).mockReturnValue(null)
-    vi.mocked(supabase.from).mockReturnValue(makeQueryBuilder({ data: [], error: null }) as ReturnType<typeof supabase.from>)
-    render(<MemoryRouter><Proposals /></MemoryRouter>)
-  })
-
   it('shows loading state initially', () => {
-    vi.mocked(getSession).mockReturnValue(mockSession)
     vi.mocked(supabase.from).mockReturnValue(makeQueryBuilder({ data: [], error: null }) as ReturnType<typeof supabase.from>)
     render(<MemoryRouter><Proposals /></MemoryRouter>)
     expect(screen.getByText('Chargement...')).toBeInTheDocument()
   })
 
   it('shows empty state when no proposals', async () => {
-    vi.mocked(getSession).mockReturnValue(mockSession)
     vi.mocked(supabase.from).mockReturnValue(makeQueryBuilder({ data: [], error: null }) as ReturnType<typeof supabase.from>)
     render(<MemoryRouter><Proposals /></MemoryRouter>)
     await screen.findByText('Aucun pari pour l\'instant.')
   })
 
   it('renders a pending proposal card', async () => {
-    vi.mocked(getSession).mockReturnValue(mockSession)
     vi.mocked(supabase.from).mockImplementation((table: string) => {
       if (table === 'proposals') return makeQueryBuilder({ data: [makeProposal()], error: null }) as ReturnType<typeof supabase.from>
       return makeQueryBuilder({ data: [], error: null }) as ReturnType<typeof supabase.from>
@@ -130,7 +120,6 @@ describe('Proposals — rendering', () => {
   })
 
   it('shows vote count and threshold', async () => {
-    vi.mocked(getSession).mockReturnValue(mockSession)
     vi.mocked(supabase.from).mockReturnValue(
       makeQueryBuilder({ data: [makeProposal({ vote_count: 2 })], error: null }) as ReturnType<typeof supabase.from>
     )
@@ -139,7 +128,6 @@ describe('Proposals — rendering', () => {
   })
 
   it('shows "Validées" section for approved proposals', async () => {
-    vi.mocked(getSession).mockReturnValue(mockSession)
     vi.mocked(supabase.from).mockReturnValue(
       makeQueryBuilder({ data: [makeProposal({ is_approved: true, vote_count: 3 })], error: null }) as ReturnType<typeof supabase.from>
     )
@@ -150,7 +138,6 @@ describe('Proposals — rendering', () => {
   })
 
   it('shows "Ma proposition" badge for own proposals', async () => {
-    vi.mocked(getSession).mockReturnValue(mockSession)
     vi.mocked(supabase.from).mockReturnValue(
       makeQueryBuilder({ data: [makeProposal({ proposer_user_id: 'user-1' })], error: null }) as ReturnType<typeof supabase.from>
     )
@@ -163,7 +150,6 @@ describe('Proposals — rendering', () => {
 
 describe('Proposals — voting', () => {
   it('shows Voter button for proposals from others', async () => {
-    vi.mocked(getSession).mockReturnValue(mockSession)
     vi.mocked(supabase.from).mockReturnValue(
       makeQueryBuilder({ data: [makeProposal()], error: null }) as ReturnType<typeof supabase.from>
     )
@@ -173,7 +159,6 @@ describe('Proposals — voting', () => {
 
   it('shows Déjà voté when proposal already voted in localStorage', async () => {
     markVoted('prop-1')
-    vi.mocked(getSession).mockReturnValue(mockSession)
     vi.mocked(supabase.from).mockReturnValue(
       makeQueryBuilder({ data: [makeProposal()], error: null }) as ReturnType<typeof supabase.from>
     )
@@ -182,7 +167,6 @@ describe('Proposals — voting', () => {
   })
 
   it('performs optimistic vote update on click', async () => {
-    vi.mocked(getSession).mockReturnValue(mockSession)
     vi.mocked(supabase.from).mockReturnValue(
       makeQueryBuilder({ data: [makeProposal({ vote_count: 1 })], error: null }) as ReturnType<typeof supabase.from>
     )
@@ -196,7 +180,6 @@ describe('Proposals — voting', () => {
   })
 
   it('marks id as voted in localStorage after clicking vote', async () => {
-    vi.mocked(getSession).mockReturnValue(mockSession)
     vi.mocked(supabase.from).mockReturnValue(
       makeQueryBuilder({ data: [makeProposal()], error: null }) as ReturnType<typeof supabase.from>
     )
@@ -209,7 +192,6 @@ describe('Proposals — voting', () => {
   })
 
   it('shows approval toast when vote_count reaches threshold', async () => {
-    vi.mocked(getSession).mockReturnValue(mockSession)
     vi.mocked(supabase.from).mockReturnValue(
       makeQueryBuilder({ data: [makeProposal({ vote_count: 2 })], error: null }) as ReturnType<typeof supabase.from>
     )
@@ -221,7 +203,6 @@ describe('Proposals — voting', () => {
   })
 
   it('rolls back vote on DB error', async () => {
-    vi.mocked(getSession).mockReturnValue(mockSession)
     vi.mocked(supabase.from).mockReturnValue(
       makeQueryBuilder({ data: [makeProposal({ vote_count: 1 })], error: null }) as ReturnType<typeof supabase.from>
     )

@@ -2,7 +2,7 @@ import { useRef, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { compressImage } from '../lib/compressImage'
 import { supabase } from '../lib/supabase'
-import { getSession } from '../lib/session'
+import { useAuth } from '../contexts/AuthContext'
 
 interface Props {
   cell: {
@@ -15,7 +15,7 @@ interface Props {
 }
 
 export default function ProofSheet({ cell, onClose, onSubmitted }: Props) {
-  const session = getSession()
+  const { userId } = useAuth()
   const [proofText, setProofText] = useState('')
   const [imageFile, setImageFile] = useState<File | null>(null)
   const [imagePreview, setImagePreview] = useState<string | null>(null)
@@ -41,7 +41,7 @@ export default function ProofSheet({ cell, onClose, onSubmitted }: Props) {
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
-    if (!session || !canSubmit) return
+    if (!userId || !canSubmit) return
     setLoading(true)
     setError(null)
 
@@ -50,11 +50,11 @@ export default function ProofSheet({ cell, onClose, onSubmitted }: Props) {
       .from('submissions')
       .delete()
       .eq('cell_id', cell.id)
-      .eq('submitter_user_id', session.userId)
+      .eq('submitter_user_id', userId)
 
     let proofImageUrl: string | null = null
     if (imageFile) {
-      const path = `${session.userId}/${Date.now()}.jpg`
+      const path = `${userId}/${Date.now()}.jpg`
       const { error: uploadError } = await supabase.storage
         .from('proofs')
         .upload(path, imageFile)
@@ -69,7 +69,7 @@ export default function ProofSheet({ cell, onClose, onSubmitted }: Props) {
 
     const { error: insertError } = await supabase.from('submissions').insert({
       cell_id: cell.id,
-      submitter_user_id: session.userId,
+      submitter_user_id: userId,
       proof_text: proofText.trim() || null,
       proof_image_url: proofImageUrl,
     })

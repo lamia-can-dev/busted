@@ -1,8 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
 import { supabase } from '../lib/supabase'
-import { getSession } from '../lib/session'
+import { useAuth } from '../contexts/AuthContext'
 import type { User } from '../../supabase/types'
 import { checkLines, checkColumns, checkDiagonals } from '../lib/bingoUtils'
 import { isValidated, normalizeStatus } from '../lib/cellStatus'
@@ -59,8 +58,7 @@ const MEDALS = ['🥇', '🥈', '🥉']
 // ─── Main ─────────────────────────────────────────────────────
 
 export default function Leaderboard() {
-  const navigate = useNavigate()
-  const session = getSession()
+  const { userId, groupId } = useAuth()
   const [scores, setScores] = useState<PlayerScore[]>([])
   const [loading, setLoading] = useState(true)
   const [countdown, setCountdown] = useState('')
@@ -71,7 +69,6 @@ export default function Leaderboard() {
   const revealTargetRef = useRef<Date | null>(null)
 
   useEffect(() => {
-    if (!session) { navigate('/'); return }
     init()
     return () => { channelRef.current?.unsubscribe() }
   }, [])
@@ -87,12 +84,11 @@ export default function Leaderboard() {
   }, [])
 
   async function init() {
-    if (!session) return
     // Fetch group for reveal_at
     const { data: group } = await supabase
       .from('groups')
       .select('reveal_at')
-      .eq('id', session.groupId)
+      .eq('id', groupId!)
       .single()
 
     revealTargetRef.current = getRevealTarget(group?.reveal_at ?? null)
@@ -103,11 +99,10 @@ export default function Leaderboard() {
   }
 
   async function loadScores() {
-    if (!session) return
     setLoading(true)
 
     const [membersRes, cellsRes] = await Promise.all([
-      supabase.from('users').select('*').eq('group_id', session.groupId),
+      supabase.from('users').select('*').eq('group_id', groupId!),
       supabase.from('cells')
         .select('grid_id, content, target_user_id, status, created_at, grid:grids(owner_user_id)')
         .order('position', { ascending: true }),
@@ -214,8 +209,6 @@ export default function Leaderboard() {
       .subscribe()
   }
 
-  if (!session) return null
-
   return (
     <div style={styles.page}>
       {/* Header */}
@@ -250,7 +243,7 @@ export default function Leaderboard() {
               onClick={() => setExpandedId(expandedId === player.user.id ? null : player.user.id)}
               style={{
                 ...styles.card,
-                ...(player.user.id === session.userId ? styles.cardSelf : {}),
+                ...(player.user.id === userId ? styles.cardSelf : {}),
               }}
             >
               <div style={styles.cardMain}>
@@ -272,7 +265,7 @@ export default function Leaderboard() {
                 <div style={styles.nameBlock}>
                   <span style={styles.username}>
                     {player.user.username}
-                    {player.user.id === session.userId && (
+                    {player.user.id === userId && (
                       <span style={styles.youBadge}>Toi</span>
                     )}
                   </span>

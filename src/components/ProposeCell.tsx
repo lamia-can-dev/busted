@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { supabase } from '../lib/supabase'
-import { getSession } from '../lib/session'
+import { useAuth } from '../contexts/AuthContext'
 import { currentWeekStart, generateGroupSuggestions } from '../lib/suggestChallenges'
 import type { Suggestion, User } from '../../supabase/types'
 
@@ -10,7 +10,7 @@ interface Props {
 }
 
 export default function ProposeCell({ onClose }: Props) {
-  const session = getSession()
+  const { userId, groupId } = useAuth()
   const [members, setMembers] = useState<User[]>([])
   const [targetId, setTargetId] = useState('')
   const [content, setContent] = useState('')
@@ -21,12 +21,12 @@ export default function ProposeCell({ onClose }: Props) {
   const [success, setSuccess] = useState(false)
 
   useEffect(() => {
-    if (!session) return
+    if (!userId || !groupId) return
     supabase
       .from('users')
       .select('*')
-      .eq('group_id', session.groupId)
-      .neq('id', session.userId)
+      .eq('group_id', groupId)
+      .neq('id', userId)
       .then(({ data }) => {
         setMembers(data ?? [])
         if (data && data.length > 0) setTargetId(data[0].id)
@@ -34,19 +34,19 @@ export default function ProposeCell({ onClose }: Props) {
   }, [])
 
   useEffect(() => {
-    if (!session || !targetId) return
+    if (!userId || !groupId || !targetId) return
 
     async function loadSuggestions() {
       const weekStart = currentWeekStart()
 
       // Additive: generates only for members without suggestions this week
-      await generateGroupSuggestions(session!.groupId, weekStart)
+      await generateGroupSuggestions(groupId!, weekStart)
 
       // Charger les suggestions disponibles pour cette cible
       const { data } = await supabase
         .from('suggestions')
         .select('*')
-        .eq('group_id', session!.groupId)
+        .eq('group_id', groupId!)
         .eq('target_user_id', targetId)
         .eq('is_available', true)
 
@@ -58,7 +58,7 @@ export default function ProposeCell({ onClose }: Props) {
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
-    if (!session || !targetId || !content.trim()) return
+    if (!userId || !groupId || !targetId || !content.trim()) return
     setLoading(true)
     setError(null)
 
@@ -68,7 +68,7 @@ export default function ProposeCell({ onClose }: Props) {
       .select('id')
       .eq('target_user_id', targetId)
       .eq('content', content.trim())
-      .eq('group_id', session.groupId)
+      .eq('group_id', groupId)
       .maybeSingle()
 
     if (existing) {
@@ -78,8 +78,8 @@ export default function ProposeCell({ onClose }: Props) {
     }
 
     const { error: insertError } = await supabase.from('proposals').insert({
-      group_id: session.groupId,
-      proposer_user_id: session.userId,
+      group_id: groupId,
+      proposer_user_id: userId,
       target_user_id: targetId,
       content: content.trim(),
     })

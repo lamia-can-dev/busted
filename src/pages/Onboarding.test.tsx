@@ -8,28 +8,24 @@ import { supabase } from '../lib/supabase'
 vi.mock('../lib/supabase', () => ({
   supabase: {
     from: vi.fn(),
-    auth: {
-      signInAnonymously: vi.fn(),
-    },
     storage: {
       from: vi.fn(),
     },
   },
 }))
 
-vi.mock('../lib/session', () => ({
-  saveSession: vi.fn(),
+vi.mock('../contexts/AuthContext', () => ({
+  useAuth: vi.fn(),
 }))
 
 vi.mock('../lib/compressImage', () => ({
   compressImage: vi.fn().mockResolvedValue(new Blob(['compressed'], { type: 'image/jpeg' })),
 }))
 
-import { saveSession } from '../lib/session'
+import { useAuth } from '../contexts/AuthContext'
 import Onboarding from './Onboarding'
 
 const mockGroup = { id: 'group-1' }
-const mockUser = { id: 'anon-user', session: { refresh_token: 'rt-1' } }
 
 function renderWithInvite(code = 'ABC123') {
   return render(
@@ -43,14 +39,11 @@ function renderWithInvite(code = 'ABC123') {
 
 beforeEach(() => {
   vi.clearAllMocks()
+  vi.mocked(useAuth).mockReturnValue({ userId: 'anon-user', groupId: null, loading: false, signOut: vi.fn(), refreshGroupId: vi.fn() })
   vi.mocked(supabase.from).mockImplementation((table: string) => {
     if (table === 'groups') return makeQueryBuilder({ data: mockGroup, error: null }) as ReturnType<typeof supabase.from>
     return makeQueryBuilder({ data: null, error: null }) as ReturnType<typeof supabase.from>
   })
-  vi.mocked(supabase.auth.signInAnonymously).mockResolvedValue({
-    data: { user: mockUser, session: { refresh_token: 'rt-1' } },
-    error: null,
-  } as never)
   vi.mocked(supabase.storage.from).mockReturnValue(
     makeStorageMock('https://cdn.example.com/avatar.jpg') as unknown as ReturnType<typeof supabase.storage.from>
   )
@@ -122,21 +115,6 @@ describe('Onboarding — form submission errors', () => {
     await screen.findByText("Code d'invitation invalide.")
   })
 
-  it('shows error when anonymous auth fails', async () => {
-    vi.mocked(supabase.auth.signInAnonymously).mockResolvedValue({
-      data: { user: null, session: null },
-      error: { message: 'Auth service down' },
-    } as never)
-    renderWithInvite()
-    await userEvent.type(screen.getByPlaceholderText(/nico_le_roi/i), 'Lamia')
-    await userEvent.click(screen.getByRole('button', { name: /suivant/i }))
-    await userEvent.click(screen.getByText('Product'))
-    await userEvent.click(screen.getByText('Organisateur en chef'))
-    await userEvent.click(screen.getByText('Healthy & équilibré'))
-    await userEvent.click(screen.getByRole('button', { name: /rejoindre le groupe/i }))
-    await screen.findByText(/erreur d'authentification/i)
-  })
-
   it('shows error when user insert fails', async () => {
     vi.mocked(supabase.from).mockImplementation((table: string) => {
       if (table === 'groups') return makeQueryBuilder({ data: mockGroup, error: null }) as ReturnType<typeof supabase.from>
@@ -155,11 +133,13 @@ describe('Onboarding — form submission errors', () => {
 })
 
 describe('Onboarding — successful submission', () => {
-  it('calls saveSession and navigates on success', async () => {
+  it('calls refreshGroupId and navigates on success', async () => {
+    const refreshGroupId = vi.fn()
+    vi.mocked(useAuth).mockReturnValue({ userId: 'anon-user', groupId: null, loading: false, signOut: vi.fn(), refreshGroupId })
     await goToStep2('Lamia')
     await userEvent.click(screen.getByRole('button', { name: /rejoindre le groupe/i }))
     await waitFor(() => {
-      expect(saveSession).toHaveBeenCalledWith('anon-user', 'group-1', 'rt-1')
+      expect(refreshGroupId).toHaveBeenCalled()
     })
   })
 
@@ -218,9 +198,6 @@ describe('Onboarding — avatar upload', () => {
 
     await waitFor(() => {
       expect(supabase.storage.from).toHaveBeenCalledWith('avatars')
-    })
-    await waitFor(() => {
-      expect(saveSession).toHaveBeenCalled()
     })
   })
 })

@@ -20,8 +20,8 @@ vi.mock('../lib/supabase', () => ({
   },
 }))
 
-vi.mock('../lib/session', () => ({
-  getSession: vi.fn(),
+vi.mock('../contexts/AuthContext', () => ({
+  useAuth: vi.fn(),
 }))
 
 vi.mock('../lib/generateGrid', () => ({
@@ -32,10 +32,8 @@ vi.mock('../lib/compressImage', () => ({
   compressImage: vi.fn().mockResolvedValue(new Blob(['compressed'], { type: 'image/jpeg' })),
 }))
 
-import { getSession } from '../lib/session'
+import { useAuth } from '../contexts/AuthContext'
 import Game from '../pages/Game'
-
-const SESSION = { userId: 'user-1', groupId: 'group-1', refreshToken: null }
 
 const GRID = {
   id: 'grid-1', owner_user_id: 'user-1', group_id: 'group-1',
@@ -67,9 +65,10 @@ function renderGame() {
 
 beforeEach(() => {
   vi.clearAllMocks()
-  vi.mocked(getSession).mockReturnValue(SESSION)
+  vi.mocked(useAuth).mockReturnValue({ userId: 'user-1', groupId: 'group-1', loading: false, signOut: vi.fn(), refreshGroupId: vi.fn() })
   vi.mocked(supabase.channel).mockReturnValue(makeChannelMock() as unknown as ReturnType<typeof supabase.channel>)
   vi.mocked(supabase.storage.from).mockReturnValue(makeStorageMock() as unknown as ReturnType<typeof supabase.storage.from>)
+  localStorage.setItem('busted_tutorial_done', 'true')
   Object.defineProperty(navigator, 'clipboard', {
     value: { writeText: vi.fn().mockResolvedValue(undefined) },
     writable: true,

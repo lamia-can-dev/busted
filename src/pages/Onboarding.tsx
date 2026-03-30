@@ -1,8 +1,8 @@
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { compressImage } from '../lib/compressImage'
 import { useParams, useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
-import { saveSession } from '../lib/session'
+import { useAuth } from '../contexts/AuthContext'
 import Logo from '../components/Logo'
 
 const JOB_OPTIONS   = ['Product', 'Tech Lead', 'Dev', 'Sales', 'Autres']
@@ -12,6 +12,16 @@ const FOOD_OPTIONS  = ['Healthy & équilibré', 'Fast food assumé', 'Je mange n
 export default function Onboarding() {
   const { invite_code } = useParams<{ invite_code: string }>()
   const navigate = useNavigate()
+  const { userId, loading: authLoading, refreshGroupId } = useAuth()
+
+  useEffect(() => {
+    if (!authLoading && !userId) {
+      if (invite_code) {
+        sessionStorage.setItem('busted_pending_invite', invite_code)
+      }
+      navigate('/')
+    }
+  }, [authLoading, userId, invite_code, navigate])
 
   // Step 1
   const [step, setStep] = useState<1 | 2>(1)
@@ -44,7 +54,7 @@ export default function Onboarding() {
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
-    if (!invite_code || !username.trim()) return
+    if (!invite_code || !username.trim() || !userId) return
     setLoading(true)
     setError(null)
 
@@ -59,14 +69,6 @@ export default function Onboarding() {
       setLoading(false)
       return
     }
-
-    const { data: authData, error: authError } = await supabase.auth.signInAnonymously()
-    if (authError || !authData.user) {
-      setError('Erreur d\'authentification : ' + (authError?.message ?? ''))
-      setLoading(false)
-      return
-    }
-    const userId = authData.user.id
 
     let avatarUrl: string | null = null
     if (avatarFile) {
@@ -95,8 +97,7 @@ export default function Onboarding() {
       return
     }
 
-    const refreshToken = authData.session?.refresh_token
-    saveSession(userId, group.id, refreshToken ?? undefined)
+    await refreshGroupId()
     navigate('/game')
   }
 

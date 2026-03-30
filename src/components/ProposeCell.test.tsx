@@ -10,8 +10,8 @@ vi.mock('../lib/supabase', () => ({
   },
 }))
 
-vi.mock('../lib/session', () => ({
-  getSession: vi.fn(),
+vi.mock('../contexts/AuthContext', () => ({
+  useAuth: vi.fn(),
 }))
 
 vi.mock('../lib/suggestChallenges', () => ({
@@ -19,10 +19,8 @@ vi.mock('../lib/suggestChallenges', () => ({
   generateGroupSuggestions: vi.fn().mockResolvedValue(undefined),
 }))
 
-import { getSession } from '../lib/session'
+import { useAuth } from '../contexts/AuthContext'
 import ProposeCell from './ProposeCell'
-
-const mockSession = { userId: 'user-1', groupId: 'group-1', refreshToken: null }
 
 const mockMembers = [
   { id: 'user-2', username: 'Alice', avatar_url: null, group_id: 'group-1', onboarding_answers: null, created_at: '' },
@@ -40,7 +38,7 @@ function mockFromByTable(overrides: Record<string, { data: unknown; error: unkno
 
 beforeEach(() => {
   vi.clearAllMocks()
-  vi.mocked(getSession).mockReturnValue(mockSession)
+  vi.mocked(useAuth).mockReturnValue({ userId: 'user-1', groupId: 'group-1', loading: false, signOut: vi.fn(), refreshGroupId: vi.fn() })
   mockFromByTable({ users: { data: mockMembers, error: null } })
 })
 

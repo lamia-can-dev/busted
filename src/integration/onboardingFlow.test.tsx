@@ -15,28 +15,24 @@ import { supabase } from '../lib/supabase'
 vi.mock('../lib/supabase', () => ({
   supabase: {
     from: vi.fn(),
-    auth: {
-      signInAnonymously: vi.fn(),
-    },
     storage: {
       from: vi.fn(),
     },
   },
 }))
 
-vi.mock('../lib/session', () => ({
-  saveSession: vi.fn(),
+vi.mock('../contexts/AuthContext', () => ({
+  useAuth: vi.fn(),
 }))
 
 vi.mock('../lib/compressImage', () => ({
   compressImage: vi.fn().mockResolvedValue(new Blob(['compressed'], { type: 'image/jpeg' })),
 }))
 
-import { saveSession } from '../lib/session'
+import { useAuth } from '../contexts/AuthContext'
 import Onboarding from '../pages/Onboarding'
 
 const MOCK_GROUP = { id: 'group-abc' }
-const MOCK_USER = { id: 'anon-42', session: { refresh_token: 'rt-xyz' } }
 
 function renderOnboarding(code = 'INVITE1') {
   return render(
@@ -54,10 +50,6 @@ function setupHappyPath() {
     if (table === 'groups') return makeQueryBuilder({ data: MOCK_GROUP, error: null }) as ReturnType<typeof supabase.from>
     return makeQueryBuilder({ data: null, error: null }) as ReturnType<typeof supabase.from>
   })
-  vi.mocked(supabase.auth.signInAnonymously).mockResolvedValue({
-    data: { user: MOCK_USER, session: { refresh_token: 'rt-xyz' } },
-    error: null,
-  } as never)
   vi.mocked(supabase.storage.from).mockReturnValue(
     makeStorageMock('https://cdn.example.com/avatar.jpg') as unknown as ReturnType<typeof supabase.storage.from>
   )
@@ -65,6 +57,7 @@ function setupHappyPath() {
 
 beforeEach(() => {
   vi.clearAllMocks()
+  vi.mocked(useAuth).mockReturnValue({ userId: 'anon-42', groupId: null, loading: false, signOut: vi.fn(), refreshGroupId: vi.fn() })
   setupHappyPath()
 })
 
@@ -84,15 +77,13 @@ async function answerQuestions() {
 // --- Happy path ---
 
 describe('Onboarding — complete flow', () => {
-  it('full flow: type username → submit → saveSession called', async () => {
+  it('full flow: type username → submit → navigates to game', async () => {
     renderOnboarding()
     await completeStep1('Thomas')
     await answerQuestions()
     await userEvent.click(screen.getByRole('button', { name: /rejoindre le groupe/i }))
 
-    await waitFor(() => {
-      expect(saveSession).toHaveBeenCalledWith('anon-42', 'group-abc', 'rt-xyz')
-    })
+    await screen.findByText('Game page')
   })
 
   it('navigates to /game after successful submission', async () => {
@@ -180,21 +171,6 @@ describe('Onboarding — error paths', () => {
     await answerQuestions()
     await userEvent.click(screen.getByRole('button', { name: /rejoindre le groupe/i }))
     await screen.findByText("Code d'invitation invalide.")
-    expect(saveSession).not.toHaveBeenCalled()
-  })
-
-  it('shows auth error when signInAnonymously fails', async () => {
-    vi.mocked(supabase.auth.signInAnonymously).mockResolvedValue({
-      data: { user: null, session: null },
-      error: { message: 'Auth service unavailable' },
-    } as never)
-
-    renderOnboarding()
-    await completeStep1('Thomas')
-    await answerQuestions()
-    await userEvent.click(screen.getByRole('button', { name: /rejoindre le groupe/i }))
-    await screen.findByText(/erreur d'authentification/i)
-    expect(saveSession).not.toHaveBeenCalled()
   })
 
   it('shows profile creation error when user insert fails', async () => {
@@ -209,6 +185,5 @@ describe('Onboarding — error paths', () => {
     await answerQuestions()
     await userEvent.click(screen.getByRole('button', { name: /rejoindre le groupe/i }))
     await screen.findByText(/erreur lors de la création du profil/i)
-    expect(saveSession).not.toHaveBeenCalled()
   })
 })

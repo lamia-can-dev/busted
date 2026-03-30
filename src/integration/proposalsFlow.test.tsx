@@ -19,8 +19,8 @@ vi.mock('../lib/supabase', () => ({
   },
 }))
 
-vi.mock('../lib/session', () => ({
-  getSession: vi.fn(),
+vi.mock('../contexts/AuthContext', () => ({
+  useAuth: vi.fn(),
 }))
 
 vi.mock('../lib/suggestChallenges', () => ({
@@ -28,10 +28,8 @@ vi.mock('../lib/suggestChallenges', () => ({
   generateGroupSuggestions: vi.fn().mockResolvedValue(undefined),
 }))
 
-import { getSession } from '../lib/session'
+import { useAuth } from '../contexts/AuthContext'
 import Proposals from '../pages/Proposals'
-
-const SESSION = { userId: 'user-1', groupId: 'group-1', refreshToken: null }
 
 function makeProposal(overrides: Record<string, unknown> = {}) {
   return {
@@ -55,7 +53,7 @@ function renderProposals() {
 
 beforeEach(() => {
   vi.clearAllMocks()
-  vi.mocked(getSession).mockReturnValue(SESSION)
+  vi.mocked(useAuth).mockReturnValue({ userId: 'user-1', groupId: 'group-1', loading: false, signOut: vi.fn(), refreshGroupId: vi.fn() })
   vi.mocked(supabase.channel).mockReturnValue(makeChannelMock() as unknown as ReturnType<typeof supabase.channel>)
   vi.mocked(supabase.rpc).mockResolvedValue({ data: [{ vote_count: 2, is_approved: false }], error: null } as never)
   localStorage.clear()

@@ -1,8 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
 import { AnimatePresence, motion } from 'framer-motion'
 import { supabase } from '../lib/supabase'
-import { getSession } from '../lib/session'
+import { useAuth } from '../contexts/AuthContext'
 import Logo from '../components/Logo'
 
 // ─── Types ────────────────────────────────────────────────────
@@ -69,8 +68,7 @@ function saveSeenIds(ids: Set<string>) {
 // ─── Main component ───────────────────────────────────────────
 
 export default function Activity() {
-  const navigate = useNavigate()
-  const session = getSession()
+  const { userId, groupId } = useAuth()
 
   const [notifications, setNotifications] = useState<AppNotification[]>([])
   const [loading, setLoading] = useState(true)
@@ -78,7 +76,6 @@ export default function Activity() {
   const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null)
 
   useEffect(() => {
-    if (!session) { navigate('/'); return }
     loadNotifications()
 
     return () => {
@@ -87,7 +84,6 @@ export default function Activity() {
   }, [])
 
   async function loadNotifications() {
-    if (!session) return
     setLoading(true)
 
     const [targetedRes, mySubmissionsRes, proposalsRes] = await Promise.all([
@@ -101,7 +97,7 @@ export default function Activity() {
             submitter:users!submitter_user_id(id, username)
           )
         `)
-        .eq('target_user_id', session.userId),
+        .eq('target_user_id', userId!),
       // Mes soumissions (pour proof_validated / proof_rejected)
       supabase
         .from('submissions')
@@ -110,11 +106,11 @@ export default function Activity() {
           cell:cells(content, target_user_id, status, target:users!target_user_id(id, username)),
           votes(voter_user_id, is_valid, created_at)
         `)
-        .eq('submitter_user_id', session.userId),
+        .eq('submitter_user_id', userId!),
       supabase
         .from('proposals')
         .select(`id, content, created_at, target:users!target_user_id(id, username)`)
-        .eq('proposer_user_id', session.userId)
+        .eq('proposer_user_id', userId!)
         .eq('is_approved', true),
     ])
 
@@ -250,13 +246,11 @@ export default function Activity() {
   async function handleConfirm(cellId: string, submissionId: string, notifId: string) {
     setActionLoading(notifId)
     await supabase.from('cells').update({ status: 'busted' }).eq('id', cellId)
-    if (session) {
-      await supabase.from('votes').insert({
-        submission_id: submissionId,
-        voter_user_id: session.userId,
-        is_valid: true,
-      })
-    }
+    await supabase.from('votes').insert({
+      submission_id: submissionId,
+      voter_user_id: userId!,
+      is_valid: true,
+    })
     await loadNotifications()
     setActionLoading(null)
   }
@@ -264,13 +258,11 @@ export default function Activity() {
   async function handleDeny(cellId: string, submissionId: string, notifId: string) {
     setActionLoading(notifId)
     await supabase.from('cells').update({ status: 'rejected' }).eq('id', cellId)
-    if (session) {
-      await supabase.from('votes').insert({
-        submission_id: submissionId,
-        voter_user_id: session.userId,
-        is_valid: false,
-      })
-    }
+    await supabase.from('votes').insert({
+      submission_id: submissionId,
+      voter_user_id: userId!,
+      is_valid: false,
+    })
     await loadNotifications()
     setActionLoading(null)
   }
@@ -286,8 +278,6 @@ export default function Activity() {
       .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'proposals' }, () => loadNotifications())
       .subscribe()
   }
-
-  if (!session) return null
 
   return (
     <div style={styles.page}>

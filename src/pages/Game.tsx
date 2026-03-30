@@ -1,9 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
 import confetti from 'canvas-confetti'
 import { supabase } from '../lib/supabase'
-import { getSession } from '../lib/session'
+import { useAuth } from '../contexts/AuthContext'
 import type { Cell, Grid, User } from '../../supabase/types'
 import ProposeCell from '../components/ProposeCell'
 import CellSheet from '../components/CellSheet'
@@ -12,6 +11,7 @@ import Logo from '../components/Logo'
 import { generateGridFromPool } from '../lib/generateGrid'
 import { checkLines, checkColumns, checkDiagonals } from '../lib/bingoUtils'
 import { normalizeStatus } from '../lib/cellStatus'
+import Tutorial from '../components/Tutorial'
 
 // ─── Types ────────────────────────────────────────────────────
 
@@ -43,8 +43,7 @@ const CELL_CONFIG: Record<number, { fontSize: number }> = {
 // ─── Main ─────────────────────────────────────────────────────
 
 export default function Game() {
-  const navigate = useNavigate()
-  const session = getSession()
+  const { userId, groupId } = useAuth()
 
   const [grid, setGrid] = useState<GridWithCells | null>(null)
   const [loading, setLoading] = useState(true)
@@ -64,23 +63,30 @@ export default function Game() {
   const [inviteCode, setInviteCode] = useState<string | null>(null)
   const [showInvite, setShowInvite] = useState(false)
   const [copied, setCopied] = useState(false)
+  const [showTutorial, setShowTutorial] = useState(() => {
+    if (localStorage.getItem('busted_tutorial_done')) return false
+    // Don't show to existing users: check for any other busted_ keys
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i)
+      if (key && key.startsWith('busted_') && key !== 'busted_tutorial_done') return false
+    }
+    return true
+  })
 
   useEffect(() => {
-    if (!session) { navigate('/'); return }
     loadGrid()
     subscribeRealtime()
     return () => { channelRef.current?.unsubscribe() }
   }, [])
 
   async function loadGrid() {
-    if (!session) return
     setLoading(true)
     setError(null)
 
     const { data: grids, error: gridError } = await supabase
       .from('grids')
       .select('*')
-      .eq('owner_user_id', session.userId)
+      .eq('owner_user_id', userId!)
       .order('created_at', { ascending: false })
       .limit(1)
 
@@ -89,8 +95,8 @@ export default function Game() {
       const { count } = await supabase
         .from('proposals')
         .select('id', { count: 'exact', head: true })
-        .eq('group_id', session.groupId)
-        .neq('target_user_id', session.userId)
+        .eq('group_id', groupId!)
+        .neq('target_user_id', userId!)
         .eq('is_approved', true)
       setApprovedCount(count ?? 0)
       setLoading(false)
@@ -123,7 +129,7 @@ export default function Game() {
     }
 
     // Filter out cells targeting the grid owner (shouldn't happen, but safety guard)
-    const safeCells = (cells ?? []).filter((c) => c.target_user_id !== session.userId)
+    const safeCells = (cells ?? []).filter((c) => c.target_user_id !== userId)
 
     const newCells = safeCells.map((c) => {
       const submission = submissionMap.get(c.id) ?? null
@@ -169,11 +175,10 @@ export default function Game() {
   }
 
   async function handleGenerate() {
-    if (!session) return
     setGenerating(true)
     setGenerateError(null)
     try {
-      await generateGridFromPool(session.userId, session.groupId)
+      await generateGridFromPool(userId!, groupId!)
       await loadGrid()
     } catch (err) {
       setGenerateError(err instanceof Error ? err.message : 'Erreur génération')
@@ -182,15 +187,12 @@ export default function Game() {
   }
 
   async function loadInviteCode() {
-    if (!session) return
     if (inviteCode) { setShowInvite(true); return }
     const { data } = await supabase
-      .from('groups').select('invite_code').eq('id', session.groupId).single()
+      .from('groups').select('invite_code').eq('id', groupId!).single()
     if (data) setInviteCode(data.invite_code)
     setShowInvite(true)
   }
-
-  if (!session) return null
 
   const n = grid ? Math.round(Math.sqrt(grid.cells.length)) : 3
   const cellCfg = CELL_CONFIG[n] ?? CELL_CONFIG[3]
@@ -206,6 +208,13 @@ export default function Game() {
 
   return (
     <div style={styles.page}>
+      {/* Tutorial overlay */}
+      <AnimatePresence>
+        {showTutorial && (
+          <Tutorial onComplete={() => setShowTutorial(false)} />
+        )}
+      </AnimatePresence>
+
       {/* BINGO overlay */}
       <AnimatePresence>
         {showBingo && (

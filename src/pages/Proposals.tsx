@@ -1,8 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
 import { supabase } from '../lib/supabase'
-import { getSession } from '../lib/session'
+import { useAuth } from '../contexts/AuthContext'
 import { currentWeekStart, generateGroupSuggestions } from '../lib/suggestChallenges'
 import type { Proposal, Suggestion } from '../../supabase/types'
 import Logo from '../components/Logo'
@@ -66,8 +65,7 @@ const avatarFallbackStyle: React.CSSProperties = {
 const THRESHOLD = 1
 
 export default function Proposals() {
-  const navigate = useNavigate()
-  const session = getSession()
+  const { userId, groupId } = useAuth()
   const [proposals, setProposals] = useState<ProposalWithUsers[]>([])
   const [suggestions, setSuggestions] = useState<SuggestionWithTarget[]>([])
   const [loading, setLoading] = useState(true)
@@ -87,7 +85,6 @@ export default function Proposals() {
   }
 
   useEffect(() => {
-    if (!session) { navigate('/'); return }
     loadProposals()
     loadSuggestions()
     return () => {
@@ -97,17 +94,16 @@ export default function Proposals() {
   }, [])
 
   async function loadSuggestions() {
-    if (!session) return
     const weekStart = currentWeekStart()
 
     // Additive: generates only for members without suggestions this week
-    await generateGroupSuggestions(session.groupId, weekStart)
+    await generateGroupSuggestions(groupId!, weekStart)
 
     const { data } = await supabase
       .from('suggestions')
       .select('*, target:users!target_user_id(id, username, avatar_url)')
-      .eq('group_id', session.groupId)
-      .neq('target_user_id', session.userId)
+      .eq('group_id', groupId!)
+      .neq('target_user_id', userId!)
       .eq('is_available', true)
       .order('target_user_id')
 
@@ -136,11 +132,9 @@ export default function Proposals() {
   }
 
   async function chooseSuggestion(suggestion: SuggestionWithTarget) {
-    if (!session) return
-
     const { error } = await supabase.from('proposals').insert({
-      group_id: session.groupId,
-      proposer_user_id: session.userId,
+      group_id: groupId!,
+      proposer_user_id: userId!,
       target_user_id: suggestion.target_user_id,
       content: suggestion.content,
     })
@@ -163,7 +157,6 @@ export default function Proposals() {
   }
 
   async function loadProposals() {
-    if (!session) return
     setLoading(true)
 
     const { data, error } = await supabase
@@ -173,8 +166,8 @@ export default function Proposals() {
         target:users!target_user_id(id, username, avatar_url),
         proposer:users!proposer_user_id(id, username, avatar_url)
       `)
-      .eq('group_id', session.groupId)
-      .neq('target_user_id', session.userId)
+      .eq('group_id', groupId!)
+      .neq('target_user_id', userId!)
       .order('vote_count', { ascending: false })
 
     if (!error && data) setProposals(data as unknown as ProposalWithUsers[])
@@ -188,9 +181,8 @@ export default function Proposals() {
       .on('postgres_changes',
         { event: 'INSERT', schema: 'public', table: 'proposals' },
         async (payload) => {
-          if (!session) return
           // Ignorer les nouvelles propositions qui ciblent l'utilisateur courant
-          if (payload.new.target_user_id === session.userId) return
+          if (payload.new.target_user_id === userId) return
           const { data } = await supabase
             .from('proposals')
             .select(`*, target:users!target_user_id(id, username, avatar_url), proposer:users!proposer_user_id(id, username, avatar_url)`)
@@ -202,8 +194,7 @@ export default function Proposals() {
       .on('postgres_changes',
         { event: 'UPDATE', schema: 'public', table: 'proposals' },
         (payload) => {
-          if (!session) return
-          if (payload.new.target_user_id === session.userId) return
+          if (payload.new.target_user_id === userId) return
           setProposals((prev) =>
             prev.map((p) => p.id === payload.new.id ? { ...p, ...payload.new } : p)
           )
@@ -213,7 +204,6 @@ export default function Proposals() {
   }
 
   async function vote(proposal: ProposalWithUsers) {
-    if (!session) return
 
     // Marquer comme voté avant l'appel réseau
     markVoted(proposal.id)
@@ -255,8 +245,6 @@ export default function Proposals() {
       }
     }
   }
-
-  if (!session) return null
 
   const pending = proposals.filter((p) => !p.is_approved)
   const approved = proposals
@@ -418,7 +406,7 @@ export default function Proposals() {
                     >
                       <ProposalCard
                         proposal={p}
-                        userId={session.userId}
+                        userId={userId!}
                         votedIds={votedIds}
                         onVote={vote}
                         approvedView={false}
@@ -447,7 +435,7 @@ export default function Proposals() {
               <ProposalCard
                 key={p.id}
                 proposal={p}
-                userId={session.userId}
+                userId={userId!}
                 votedIds={votedIds}
                 onVote={vote}
                 approvedView={true}

@@ -8,17 +8,14 @@ import { supabase } from '../lib/supabase'
 vi.mock('../lib/supabase', () => ({
   supabase: {
     from: vi.fn(),
-    auth: {
-      signInAnonymously: vi.fn(),
-    },
   },
 }))
 
-vi.mock('../lib/session', () => ({
-  getSession: vi.fn(),
+vi.mock('../contexts/AuthContext', () => ({
+  useAuth: vi.fn(),
 }))
 
-import { getSession } from '../lib/session'
+import { useAuth } from '../contexts/AuthContext'
 import CreateGroup from './CreateGroup'
 
 beforeEach(() => {
@@ -26,10 +23,8 @@ beforeEach(() => {
   vi.mocked(supabase.from).mockReturnValue(
     makeQueryBuilder({ data: null, error: null }) as ReturnType<typeof supabase.from>
   )
-  vi.mocked(supabase.auth.signInAnonymously).mockResolvedValue({
-    data: { user: { id: 'anon-1' }, session: null },
-    error: null,
-  } as never)
+  vi.mocked(useAuth).mockReturnValue({ userId: 'u1', groupId: null, loading: false, signOut: vi.fn(), refreshGroupId: vi.fn() })
+  sessionStorage.clear()
 })
 
 function renderPage() {
@@ -38,26 +33,22 @@ function renderPage() {
 
 describe('CreateGroup — rendering', () => {
   it('renders the Busted title', () => {
-    vi.mocked(getSession).mockReturnValue(null)
     renderPage()
     expect(screen.getByText('Busted')).toBeInTheDocument()
   })
 
   it('renders the create form by default', () => {
-    vi.mocked(getSession).mockReturnValue(null)
     renderPage()
     expect(screen.getByPlaceholderText(/les potes du jeudi/i)).toBeInTheDocument()
   })
 
   it('create submit is disabled when group name is empty', () => {
-    vi.mocked(getSession).mockReturnValue(null)
     renderPage()
-    // Step 1: button text is "Suivant →"
     expect(screen.getByRole('button', { name: /suivant/i })).toBeDisabled()
   })
 
-  it('redirects to /game when session exists', () => {
-    vi.mocked(getSession).mockReturnValue({ userId: 'u1', groupId: 'g1', refreshToken: null })
+  it('redirects to /game when session exists with group', () => {
+    vi.mocked(useAuth).mockReturnValue({ userId: 'u1', groupId: 'g1', loading: false, signOut: vi.fn(), refreshGroupId: vi.fn() })
     renderPage()
     // navigate('/game') is called — component still renders without crashing
   })
@@ -65,14 +56,12 @@ describe('CreateGroup — rendering', () => {
 
 describe('CreateGroup — mode toggle', () => {
   it('switches to join mode when "Rejoindre" is clicked', async () => {
-    vi.mocked(getSession).mockReturnValue(null)
     renderPage()
     await userEvent.click(screen.getByRole('button', { name: 'Rejoindre' }))
     expect(screen.getByPlaceholderText(/a3k9pz/i)).toBeInTheDocument()
   })
 
   it('switches back to create mode', async () => {
-    vi.mocked(getSession).mockReturnValue(null)
     renderPage()
     await userEvent.click(screen.getByRole('button', { name: 'Rejoindre' }))
     await userEvent.click(screen.getByRole('button', { name: /créer un groupe/i }))
@@ -80,47 +69,27 @@ describe('CreateGroup — mode toggle', () => {
   })
 
   it('clears error when switching modes', async () => {
-    vi.mocked(getSession).mockReturnValue(null)
-    vi.mocked(supabase.auth.signInAnonymously).mockResolvedValue({
-      data: { user: null, session: null },
-      error: { message: 'Auth failed' },
-    } as never)
+    vi.mocked(supabase.from).mockReturnValue(
+      makeQueryBuilder({ data: null, error: { message: 'DB error' } }) as ReturnType<typeof supabase.from>
+    )
     renderPage()
-    // Type name and go to step 2
     await userEvent.type(screen.getByPlaceholderText(/les potes du jeudi/i), 'Mon groupe')
     await userEvent.click(screen.getByRole('button', { name: /suivant/i }))
-    // Now on step 2, click "Créer le groupe →"
     await userEvent.click(screen.getByRole('button', { name: /créer le groupe/i }))
-    await screen.findByText(/auth failed/i)
+    await screen.findByText(/db error/i)
     await userEvent.click(screen.getByRole('button', { name: 'Rejoindre' }))
-    expect(screen.queryByText(/auth failed/i)).toBeNull()
+    expect(screen.queryByText(/db error/i)).toBeNull()
   })
 })
 
 describe('CreateGroup — create flow', () => {
   it('enables submit when group name is typed', async () => {
-    vi.mocked(getSession).mockReturnValue(null)
     renderPage()
     await userEvent.type(screen.getByPlaceholderText(/les potes du jeudi/i), 'Mon groupe')
-    // Step 1: "Suivant →" is enabled
     expect(screen.getByRole('button', { name: /suivant/i })).not.toBeDisabled()
   })
 
-  it('shows auth error when signInAnonymously fails', async () => {
-    vi.mocked(getSession).mockReturnValue(null)
-    vi.mocked(supabase.auth.signInAnonymously).mockResolvedValue({
-      data: { user: null, session: null },
-      error: { message: 'Auth failed' },
-    } as never)
-    renderPage()
-    await userEvent.type(screen.getByPlaceholderText(/les potes du jeudi/i), 'Mon groupe')
-    await userEvent.click(screen.getByRole('button', { name: /suivant/i }))
-    await userEvent.click(screen.getByRole('button', { name: /créer le groupe/i }))
-    await screen.findByText(/erreur d'authentification/i)
-  })
-
   it('shows DB error when group insert fails', async () => {
-    vi.mocked(getSession).mockReturnValue(null)
     vi.mocked(supabase.from).mockReturnValue(
       makeQueryBuilder({ data: null, error: { message: 'DB write failed' } }) as ReturnType<typeof supabase.from>
     )
@@ -132,7 +101,6 @@ describe('CreateGroup — create flow', () => {
   })
 
   it('navigates to /join/:code on successful group creation', async () => {
-    vi.mocked(getSession).mockReturnValue(null)
     vi.mocked(supabase.from).mockReturnValue(
       makeQueryBuilder({ data: null, error: null }) as ReturnType<typeof supabase.from>
     )
@@ -140,7 +108,6 @@ describe('CreateGroup — create flow', () => {
     await userEvent.type(screen.getByPlaceholderText(/les potes du jeudi/i), 'Mon groupe')
     await userEvent.click(screen.getByRole('button', { name: /suivant/i }))
     await userEvent.click(screen.getByRole('button', { name: /créer le groupe/i }))
-    // Navigation happens — component doesn't show error
     await waitFor(() => {
       expect(screen.queryByText(/erreur/i)).toBeNull()
     })
@@ -149,7 +116,6 @@ describe('CreateGroup — create flow', () => {
 
 describe('CreateGroup — join flow', () => {
   async function switchToJoin() {
-    vi.mocked(getSession).mockReturnValue(null)
     renderPage()
     await userEvent.click(screen.getByRole('button', { name: 'Rejoindre' }))
   }
