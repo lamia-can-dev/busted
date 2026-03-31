@@ -9,6 +9,7 @@ import CellSheet from '../components/CellSheet'
 import ProofSheet from '../components/ProofSheet'
 import Logo from '../components/Logo'
 import { generateGridFromPool } from '../lib/generateGrid'
+import { useLiveRefresh } from '../hooks/useLiveRefresh'
 import { checkLines, checkColumns, checkDiagonals } from '../lib/bingoUtils'
 import { normalizeStatus } from '../lib/cellStatus'
 import { getUserColor } from '../lib/userColor'
@@ -76,8 +77,11 @@ export default function Game() {
     return () => { channelRef.current?.unsubscribe() }
   }, [])
 
-  async function loadGrid() {
-    setLoading(true)
+  // Keep grid fresh via polling + visibility refetch (silent = no loading spinner)
+  useLiveRefresh(() => loadGrid(true))
+
+  async function loadGrid(silent = false) {
+    if (!silent) setLoading(true)
     setError(null)
 
     const { data: grids, error: gridError } = await supabase
@@ -175,11 +179,11 @@ export default function Game() {
     if (channelRef.current) return
     channelRef.current = supabase
       .channel('game-realtime')
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'votes' }, () => loadGrid())
-      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'cells' }, () => loadGrid())
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'submissions' }, () => loadGrid())
-      .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'submissions' }, () => loadGrid())
-      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'proposals' }, () => loadGrid())
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'votes' }, () => loadGrid(true))
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'cells' }, () => loadGrid(true))
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'submissions' }, () => loadGrid(true))
+      .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'submissions' }, () => loadGrid(true))
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'proposals' }, () => loadGrid(true))
       .subscribe()
   }
 

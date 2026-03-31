@@ -1,37 +1,61 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useAuth } from '../contexts/AuthContext'
+import { supabase } from '../lib/supabase'
+import { useLiveRefresh } from '../hooks/useLiveRefresh'
+
+function readSeenIds(): Set<string> {
+  try {
+    const raw = localStorage.getItem('busted_seen_notif_ids')
+    return new Set(raw ? JSON.parse(raw) : [])
+  } catch { return new Set() }
+}
 
 export default function NavBar() {
   const location = useLocation()
   const navigate = useNavigate()
   const { userId } = useAuth()
   const [unseenCount, setUnseenCount] = useState(0)
-  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
-  function readUnreadCount(): number {
-    try { return parseInt(localStorage.getItem('busted_unread_count') ?? '0', 10) }
-    catch { return 0 }
-  }
-
-  useEffect(() => {
+  const computeUnread = useCallback(async () => {
     if (!userId) return
-    setUnseenCount(readUnreadCount())
-  }, [location.pathname])
+    // Fetch cells targeting me that have pending submissions (vote_required)
+    const { data: cells } = await supabase
+      .from('cells')
+      .select('id, status, submissions(id)')
+      .eq('target_user_id', userId)
 
-  // Listen for cross-tab storage events
+    const seenIds = readSeenIds()
+    let count = 0
+    for (const cell of cells ?? []) {
+      const subs = (cell.submissions ?? []) as { id: string }[]
+      for (const sub of subs) {
+        const notifId = `vote_required_${sub.id}`
+        if (!seenIds.has(notifId) && cell.status !== 'busted' && cell.status !== 'rejected') {
+          count++
+        }
+      }
+    }
+    setUnseenCount(count)
+    try { localStorage.setItem('busted_unread_count', String(count)) } catch {}
+  }, [userId])
+
+  // Compute on mount + when navigating
+  useEffect(() => {
+    computeUnread()
+  }, [location.pathname, computeUnread])
+
+  // Poll + visibility refetch for live badge updates
+  useLiveRefresh(computeUnread)
+
+  // Listen for same-tab localStorage writes (from Activity marking as read)
   useEffect(() => {
     function onStorage(e: StorageEvent) {
       if (e.key === 'busted_unread_count') setUnseenCount(parseInt(e.newValue ?? '0', 10))
     }
     window.addEventListener('storage', onStorage)
-    // Same-tab polling every 5s
-    intervalRef.current = setInterval(() => setUnseenCount(readUnreadCount()), 5000)
-    return () => {
-      window.removeEventListener('storage', onStorage)
-      if (intervalRef.current) clearInterval(intervalRef.current)
-    }
+    return () => window.removeEventListener('storage', onStorage)
   }, [])
 
   const tabs = [

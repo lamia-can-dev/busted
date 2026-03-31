@@ -305,3 +305,22 @@ BEGIN
   RETURN QUERY SELECT _new_count, _approved;
 END;
 $$;
+
+-- ─────────────────────────────────────────────────────────────
+-- Realtime — enable postgres_changes for key tables
+-- ─────────────────────────────────────────────────────────────
+
+DO $$
+DECLARE
+  _tables text[] := ARRAY['cells','submissions','votes','proposals'];
+  _t text;
+BEGIN
+  FOREACH _t IN ARRAY _tables LOOP
+    IF NOT EXISTS (
+      SELECT 1 FROM pg_publication_tables
+      WHERE pubname = 'supabase_realtime' AND tablename = _t
+    ) THEN
+      EXECUTE format('ALTER PUBLICATION supabase_realtime ADD TABLE %I', _t);
+    END IF;
+  END LOOP;
+END $$;

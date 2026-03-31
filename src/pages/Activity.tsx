@@ -3,6 +3,7 @@ import { AnimatePresence, motion } from 'framer-motion'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
 import { useToast } from '../hooks/useToast'
+import { useLiveRefresh } from '../hooks/useLiveRefresh'
 import Logo from '../components/Logo'
 
 // ─── Types ────────────────────────────────────────────────────
@@ -118,14 +119,13 @@ export default function Activity() {
 
   useEffect(() => {
     loadNotifications()
-
-    return () => {
-      channelRef.current?.unsubscribe()
-    }
+    return () => { channelRef.current?.unsubscribe() }
   }, [])
 
-  async function loadNotifications() {
-    setLoading(true)
+  useLiveRefresh(() => loadNotifications(true))
+
+  async function loadNotifications(silent = false) {
+    if (!silent) setLoading(true)
     setError(null)
 
     const [targetedRes, mySubmissionsRes, proposalsRes] = await Promise.all([
@@ -286,6 +286,7 @@ export default function Activity() {
       const allIds = new Set([...readSeenIds(), ...notifs.map((n) => n.id)])
       saveSeenIds(allIds)
       try { localStorage.setItem('busted_unread_count', '0') } catch {}
+      window.dispatchEvent(new StorageEvent('storage', { key: 'busted_unread_count', newValue: '0' }))
       setNotifications((prev) => prev.map((n) => ({ ...n, isRead: true })))
     }, 1500)
 
@@ -333,11 +334,11 @@ export default function Activity() {
     if (channelRef.current) return
     channelRef.current = supabase
       .channel('activity-realtime')
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'submissions' }, () => loadNotifications())
-      .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'submissions' }, () => loadNotifications())
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'votes' }, () => loadNotifications())
-      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'cells' }, () => loadNotifications())
-      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'proposals' }, () => loadNotifications())
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'submissions' }, () => loadNotifications(true))
+      .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'submissions' }, () => loadNotifications(true))
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'votes' }, () => loadNotifications(true))
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'cells' }, () => loadNotifications(true))
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'proposals' }, () => loadNotifications(true))
       .subscribe()
   }
 

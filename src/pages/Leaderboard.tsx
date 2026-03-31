@@ -8,6 +8,7 @@ import { isValidated, normalizeStatus } from '../lib/cellStatus'
 import { currentWeekStart } from '../lib/suggestChallenges'
 import Logo from '../components/Logo'
 import Avatar from '../components/Avatar'
+import { useLiveRefresh } from '../hooks/useLiveRefresh'
 
 // ─── Types ────────────────────────────────────────────────────
 
@@ -76,6 +77,8 @@ export default function Leaderboard() {
     return () => { channelRef.current?.unsubscribe() }
   }, [])
 
+  useLiveRefresh(() => loadScores(true))
+
   // Countdown tick — pause when tab is hidden
   useEffect(() => {
     let interval: ReturnType<typeof setInterval> | null = null
@@ -120,8 +123,8 @@ export default function Leaderboard() {
     subscribeRealtime()
   }
 
-  async function loadScores() {
-    setLoading(true)
+  async function loadScores(silent = false) {
+    if (!silent) setLoading(true)
     setError(null)
 
     const weekStart = currentWeekStart()
@@ -224,10 +227,10 @@ export default function Leaderboard() {
   function subscribeRealtime() {
     channelRef.current = supabase
       .channel('leaderboard-realtime')
-      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'cells' }, () => loadScores())
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'votes' }, () => loadScores())
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'submissions' }, () => loadScores())
-      .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'submissions' }, () => loadScores())
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'cells' }, () => loadScores(true))
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'votes' }, () => loadScores(true))
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'submissions' }, () => loadScores(true))
+      .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'submissions' }, () => loadScores(true))
       .subscribe()
   }
 
