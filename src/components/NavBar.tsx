@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useAuth } from '../contexts/AuthContext'
@@ -8,21 +8,36 @@ export default function NavBar() {
   const navigate = useNavigate()
   const { userId } = useAuth()
   const [unseenCount, setUnseenCount] = useState(0)
-
-  useEffect(() => {
-    if (!userId) return
-    setUnseenCount(readUnreadCount())
-  }, [location.pathname])
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   function readUnreadCount(): number {
     try { return parseInt(localStorage.getItem('busted_unread_count') ?? '0', 10) }
     catch { return 0 }
   }
 
+  useEffect(() => {
+    if (!userId) return
+    setUnseenCount(readUnreadCount())
+  }, [location.pathname])
+
+  // Listen for cross-tab storage events
+  useEffect(() => {
+    function onStorage(e: StorageEvent) {
+      if (e.key === 'busted_unread_count') setUnseenCount(parseInt(e.newValue ?? '0', 10))
+    }
+    window.addEventListener('storage', onStorage)
+    // Same-tab polling every 5s
+    intervalRef.current = setInterval(() => setUnseenCount(readUnreadCount()), 5000)
+    return () => {
+      window.removeEventListener('storage', onStorage)
+      if (intervalRef.current) clearInterval(intervalRef.current)
+    }
+  }, [])
+
   const tabs = [
     { path: '/game', icon: GridIcon, label: 'Grille' },
     { path: '/activity', icon: BellIcon, label: 'Activité' },
-    { path: '/proposals', icon: VoteIcon, label: 'Votes' },
+    { path: '/proposals', icon: VoteIcon, label: 'Actions' },
     { path: '/leaderboard', icon: TrophyIcon, label: 'Classement' },
     { path: '/profile', icon: ProfileIcon, label: 'Profil' },
   ]
@@ -54,7 +69,10 @@ export default function NavBar() {
                 )}
               </AnimatePresence>
             </div>
-            <span style={styles.label}>{label}</span>
+            <span style={{
+              ...styles.label,
+              ...(active ? styles.labelActive : {}),
+            }}>{label}</span>
           </button>
         )
       })}
@@ -122,7 +140,6 @@ const styles: Record<string, React.CSSProperties> = {
     background: 'var(--color-surface)',
     borderTop: '1px solid var(--color-border)',
     display: 'flex',
-    justifyContent: 'space-around',
     padding: '0.5rem 0 calc(0.5rem + env(safe-area-inset-bottom))',
     zIndex: 100,
   },
@@ -140,12 +157,18 @@ const styles: Record<string, React.CSSProperties> = {
     borderRadius: '0.5rem',
     minHeight: '44px',
   },
-  tabActive: {},
+  tabActive: {
+    background: 'rgba(67,97,238,0.12)',
+  },
   label: {
     fontFamily: 'var(--font-body)',
     fontWeight: 400,
     fontSize: '0.75rem',
     color: 'var(--color-text-secondary)',
+  },
+  labelActive: {
+    color: 'var(--color-indigo-light)',
+    fontWeight: 700,
   },
   badge: {
     position: 'absolute',

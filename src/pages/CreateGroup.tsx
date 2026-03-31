@@ -95,7 +95,9 @@ export default function CreateGroup() {
   return (
     <main style={styles.container}>
       <div style={styles.card}>
-        <Logo variant="full" />
+        <div style={{ marginBottom: '1rem' }}>
+          <Logo variant="full" />
+        </div>
 
         {/* Toggle */}
         <div style={styles.toggle}>

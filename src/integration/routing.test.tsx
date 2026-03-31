@@ -135,7 +135,7 @@ describe('App routing — authenticated', () => {
     render(<App />)
     await screen.findByText('Grille')
     expect(screen.getByText('Activité')).toBeInTheDocument()
-    expect(screen.getByText('Votes')).toBeInTheDocument()
+    expect(screen.getByText('Actions')).toBeInTheDocument()
     expect(screen.getByText('Classement')).toBeInTheDocument()
   })
 

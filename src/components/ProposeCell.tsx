@@ -2,8 +2,8 @@ import { useEffect, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
-import { currentWeekStart, generateGroupSuggestions } from '../lib/suggestChallenges'
-import type { Suggestion, User } from '../../supabase/types'
+import { getUserColor } from '../lib/userColor'
+import type { User } from '../../supabase/types'
 
 interface Props {
   onClose: () => void
@@ -14,8 +14,6 @@ export default function ProposeCell({ onClose }: Props) {
   const [members, setMembers] = useState<User[]>([])
   const [targetId, setTargetId] = useState('')
   const [content, setContent] = useState('')
-  const [suggestions, setSuggestions] = useState<Suggestion[]>([])
-  const [usedSuggestionId, setUsedSuggestionId] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState(false)
@@ -32,29 +30,6 @@ export default function ProposeCell({ onClose }: Props) {
         if (data && data.length > 0) setTargetId(data[0].id)
       })
   }, [])
-
-  useEffect(() => {
-    if (!userId || !groupId || !targetId) return
-
-    async function loadSuggestions() {
-      const weekStart = currentWeekStart()
-
-      // Additive: generates only for members without suggestions this week
-      await generateGroupSuggestions(groupId!, weekStart)
-
-      // Charger les suggestions disponibles pour cette cible
-      const { data } = await supabase
-        .from('suggestions')
-        .select('*')
-        .eq('group_id', groupId!)
-        .eq('target_user_id', targetId)
-        .eq('is_available', true)
-
-      setSuggestions(data ?? [])
-    }
-
-    loadSuggestions()
-  }, [targetId])
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -88,14 +63,6 @@ export default function ProposeCell({ onClose }: Props) {
       setError(insertError.message)
       setLoading(false)
       return
-    }
-
-    // Si la suggestion vient du pool, la marquer indisponible pour tout le groupe
-    if (usedSuggestionId) {
-      await supabase
-        .from('suggestions')
-        .update({ is_available: false })
-        .eq('id', usedSuggestionId)
     }
 
     setSuccess(true)
@@ -143,7 +110,7 @@ export default function ProposeCell({ onClose }: Props) {
                       {m.avatar_url ? (
                         <img src={m.avatar_url} style={styles.avatar} alt="" />
                       ) : (
-                        <div style={styles.avatarFallback}>
+                        <div style={{ ...styles.avatarFallback, background: getUserColor(m.id) }}>
                           {m.username[0].toUpperCase()}
                         </div>
                       )}
@@ -153,40 +120,12 @@ export default function ProposeCell({ onClose }: Props) {
                 </div>
               </div>
 
-              {/* Suggestions */}
-              {suggestions.length > 0 && (
-                <div style={styles.field}>
-                  <label style={styles.label}>Suggestions</label>
-                  <div style={styles.suggestionList}>
-                    {suggestions.map((s) => (
-                      <button
-                        key={s.id}
-                        type="button"
-                        onClick={() => {
-                          setContent(s.content)
-                          setUsedSuggestionId(s.id)
-                        }}
-                        style={{
-                          ...styles.suggestionBtn,
-                          ...(usedSuggestionId === s.id ? styles.suggestionBtnActive : {}),
-                        }}
-                      >
-                        {s.content}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              )}
-
               {/* Contenu */}
               <div style={styles.field}>
                 <label style={styles.label}>La case</label>
                 <textarea
                   value={content}
-                  onChange={(e) => {
-                    setContent(e.target.value)
-                    setUsedSuggestionId(null)
-                  }}
+                  onChange={(e) => setContent(e.target.value)}
                   maxLength={80}
                   placeholder="ex: Thomas va parler de son régime au déjeuner"
                   rows={3}
@@ -295,8 +234,7 @@ const styles: Record<string, React.CSSProperties> = {
     width: '24px',
     height: '24px',
     borderRadius: '50%',
-    background: '#1E1B4B',
-    color: 'var(--color-indigo-light)',
+    color: '#fff',
     fontSize: '0.75rem',
     fontWeight: 700,
     display: 'flex',
@@ -307,33 +245,6 @@ const styles: Record<string, React.CSSProperties> = {
     color: 'var(--color-text-primary)',
     fontSize: '0.875rem',
     fontWeight: 500,
-  },
-  suggestionList: {
-    display: 'flex',
-    flexDirection: 'column',
-    gap: '0.375rem',
-    maxHeight: '180px',
-    overflowY: 'auto',
-  },
-  suggestionBtn: {
-    background: 'var(--color-bg)',
-    border: '1px solid var(--color-border)',
-    borderRadius: '0.625rem',
-    color: 'var(--color-text-secondary)',
-    fontFamily: 'var(--font-body)',
-    fontWeight: 400,
-    fontSize: '0.875rem',
-    padding: '0.625rem 0.75rem',
-    cursor: 'pointer',
-    textAlign: 'left' as const,
-    lineHeight: 1.4,
-    transition: 'all 0.15s',
-    minHeight: '44px',
-  },
-  suggestionBtnActive: {
-    borderColor: 'var(--color-indigo)',
-    color: 'var(--color-text-primary)',
-    background: 'rgba(67,97,238,0.08)',
   },
   textarea: {
     background: 'var(--color-bg)',

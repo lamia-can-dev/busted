@@ -208,7 +208,7 @@ describe('Game + CellSheet + ProofSheet', () => {
     // ProofSheet opens with its own UI
     await screen.findByPlaceholderText(/décris ce qui/i)
     await userEvent.type(screen.getByPlaceholderText(/décris ce qui/i), 'Voici la preuve complète')
-    await userEvent.click(screen.getByRole('button', { name: /envoyer au groupe/i }))
+    await userEvent.click(screen.getByRole('button', { name: /envoyer à/i }))
     await screen.findByText(/preuve envoyée/i)
   })
 
@@ -237,7 +237,7 @@ describe('Game + CellSheet + ProofSheet', () => {
     // ProofSheet opens
     await screen.findByPlaceholderText(/décris ce qui/i)
     await userEvent.type(screen.getByPlaceholderText(/décris ce qui/i), 'Proof text here')
-    await userEvent.click(screen.getByRole('button', { name: /envoyer au groupe/i }))
+    await userEvent.click(screen.getByRole('button', { name: /envoyer à/i }))
     await screen.findByText(/preuve envoyée/i)
 
     expect(insertPayload).toMatchObject({
@@ -257,7 +257,7 @@ describe('Game + CellSheet + ProofSheet', () => {
 
     // ProofSheet opens - submit button should be disabled
     await screen.findByPlaceholderText(/décris ce qui/i)
-    expect(screen.getByRole('button', { name: /envoyer au groupe/i })).toBeDisabled()
+    expect(screen.getByRole('button', { name: /envoyer à/i })).toBeDisabled()
   })
 
   it('ProofSheet allows re-submission (deletes old, inserts new)', async () => {
@@ -279,7 +279,7 @@ describe('Game + CellSheet + ProofSheet', () => {
     // ProofSheet opens
     await screen.findByPlaceholderText(/décris ce qui/i)
     await userEvent.type(screen.getByPlaceholderText(/décris ce qui/i), 'New proof')
-    await userEvent.click(screen.getByRole('button', { name: /envoyer au groupe/i }))
+    await userEvent.click(screen.getByRole('button', { name: /envoyer à/i }))
     // Should show success toast (no duplicate error)
     await screen.findByText(/preuve envoyée/i)
   })

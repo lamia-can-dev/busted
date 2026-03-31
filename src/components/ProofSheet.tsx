@@ -191,7 +191,7 @@ export default function ProofSheet({ cell, onClose, onSubmitted }: Props) {
                 disabled={loading || !canSubmit}
                 style={{ ...styles.submitBtn, ...(!canSubmit ? styles.submitBtnDisabled : {}) }}
               >
-                {loading ? 'Envoi...' : 'Envoyer au groupe'}
+                {loading ? 'Envoi...' : `Envoyer à ${cell.target?.username ?? '...'}`}
               </button>
               <button type="button" onClick={onClose} style={styles.cancelBtn}>
                 Annuler

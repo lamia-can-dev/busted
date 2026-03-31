@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
+import { getUserColor } from '../lib/userColor'
 import type { CellStatus } from '../lib/cellStatus'
 
 interface CellSheetCell {
@@ -136,7 +137,7 @@ export default function CellSheet({ cell, onClose, onSubmitProof, onUpdated }: P
             {cell.target?.avatar_url ? (
               <img src={cell.target.avatar_url} style={styles.avatar} alt="" />
             ) : (
-              <div style={styles.avatarFallback}>
+              <div style={{ ...styles.avatarFallback, background: getUserColor(cell.target_user_id) }}>
                 {cell.target?.username[0]?.toUpperCase() ?? '?'}
               </div>
             )}

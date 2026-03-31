@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
+import { getUserColor } from '../lib/userColor'
 import { currentWeekStart, generateGroupSuggestions } from '../lib/suggestChallenges'
 import type { Proposal, Suggestion } from '../../supabase/types'
 import Logo from '../components/Logo'
@@ -10,6 +11,7 @@ import ProposeCell from '../components/ProposeCell'
 // ─── Vote tracking (localStorage) ────────────────────────────
 
 const VOTED_KEY = 'busted_voted_proposals'
+const DISMISSED_KEY = 'busted_dismissed_proposals'
 
 function getVotedIds(): Set<string> {
   try { return new Set(JSON.parse(localStorage.getItem(VOTED_KEY) ?? '[]')) }
@@ -20,6 +22,17 @@ function markVoted(id: string) {
   const ids = getVotedIds()
   ids.add(id)
   localStorage.setItem(VOTED_KEY, JSON.stringify([...ids]))
+}
+
+function getDismissedIds(): Set<string> {
+  try { return new Set(JSON.parse(localStorage.getItem(DISMISSED_KEY) ?? '[]')) }
+  catch { return new Set() }
+}
+
+function markDismissed(id: string) {
+  const ids = getDismissedIds()
+  ids.add(id)
+  localStorage.setItem(DISMISSED_KEY, JSON.stringify([...ids]))
 }
 
 // ─── Types ────────────────────────────────────────────────────
@@ -46,7 +59,7 @@ function Avatar({ user }: { user: UserInfo | null }) {
   return user.avatar_url ? (
     <img src={user.avatar_url} style={avatarStyle} alt="" />
   ) : (
-    <div style={{ ...avatarStyle, ...avatarFallbackStyle }}>
+    <div style={{ ...avatarStyle, ...avatarFallbackStyle, background: getUserColor(user.id) }}>
       {user.username[0].toUpperCase()}
     </div>
   )
@@ -73,6 +86,7 @@ export default function Proposals() {
   const [showProposeCell, setShowProposeCell] = useState(false)
   const [toast, setToast] = useState<string | null>(null)
   const [votedIds, setVotedIds] = useState<Set<string>>(getVotedIds)
+  const [dismissedIds, setDismissedIds] = useState<Set<string>>(getDismissedIds)
   const [suggestionIdx, setSuggestionIdx] = useState(0)
   const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null)
   const suggestionsChannelRef = useRef<ReturnType<typeof supabase.channel> | null>(null)
@@ -118,6 +132,7 @@ export default function Proposals() {
   }
 
   function subscribeSuggestionsRealtime() {
+    if (suggestionsChannelRef.current) return
     suggestionsChannelRef.current = supabase
       .channel('suggestions-realtime')
       .on('postgres_changes',
@@ -176,6 +191,7 @@ export default function Proposals() {
   }
 
   function subscribeRealtime() {
+    if (channelRef.current) return
     channelRef.current = supabase
       .channel('proposals-realtime')
       .on('postgres_changes',
@@ -246,7 +262,12 @@ export default function Proposals() {
     }
   }
 
-  const pending = proposals.filter((p) => !p.is_approved)
+  function dismissProposal(id: string) {
+    markDismissed(id)
+    setDismissedIds((prev) => new Set([...prev, id]))
+  }
+
+  const pending = proposals.filter((p) => !p.is_approved && !dismissedIds.has(p.id))
   const approved = proposals
     .filter((p) => p.is_approved)
     .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
@@ -409,6 +430,7 @@ export default function Proposals() {
                         userId={userId!}
                         votedIds={votedIds}
                         onVote={vote}
+                        onDismiss={dismissProposal}
                         approvedView={false}
                       />
                     </motion.div>
@@ -472,12 +494,14 @@ function ProposalCard({
   userId,
   votedIds,
   onVote,
+  onDismiss,
   approvedView,
 }: {
   proposal: ProposalWithUsers
   userId: string
   votedIds: Set<string>
   onVote: (p: ProposalWithUsers) => void
+  onDismiss?: (id: string) => void
   approvedView: boolean
 }) {
   const isOwn = proposal.proposer_user_id === userId
@@ -502,6 +526,15 @@ function ProposalCard({
         <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
           {isOwn && !approvedView && <span style={styles.ownBadge}>Ma proposition</span>}
           {approvedView && <span style={styles.validatedBadge}>Validé ✓</span>}
+          {!approvedView && onDismiss && (
+            <button
+              onClick={(e) => { e.stopPropagation(); onDismiss(proposal.id) }}
+              style={styles.dismissBtn}
+              title="Masquer"
+            >
+              ✕
+            </button>
+          )}
         </div>
       </div>
 
@@ -830,6 +863,21 @@ const styles: Record<string, React.CSSProperties> = {
     width: '100%',
     textAlign: 'center' as const,
     minHeight: '44px',
+  },
+  dismissBtn: {
+    background: 'transparent',
+    border: '1px solid var(--color-border)',
+    borderRadius: '50%',
+    width: '28px',
+    height: '28px',
+    fontSize: '0.75rem',
+    color: 'var(--color-text-secondary)',
+    cursor: 'pointer',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 0,
+    flexShrink: 0,
   },
   emptyState: {
     textAlign: 'center',

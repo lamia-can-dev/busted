@@ -73,7 +73,9 @@ export default function Activity() {
   const [notifications, setNotifications] = useState<AppNotification[]>([])
   const [loading, setLoading] = useState(true)
   const [actionLoading, setActionLoading] = useState<string | null>(null)
+  const [toast, setToast] = useState<string | null>(null)
   const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null)
+  const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => {
     loadNotifications()
@@ -243,6 +245,12 @@ export default function Activity() {
     subscribeRealtime()
   }
 
+  function showToast(msg: string) {
+    setToast(msg)
+    if (toastTimerRef.current) clearTimeout(toastTimerRef.current)
+    toastTimerRef.current = setTimeout(() => setToast(null), 3500)
+  }
+
   async function handleConfirm(cellId: string, submissionId: string, notifId: string) {
     setActionLoading(notifId)
     await supabase.from('cells').update({ status: 'busted' }).eq('id', cellId)
@@ -253,6 +261,7 @@ export default function Activity() {
     })
     await loadNotifications()
     setActionLoading(null)
+    showToast('Confirmé ! La case est validée 🎯')
   }
 
   async function handleDeny(cellId: string, submissionId: string, notifId: string) {
@@ -265,6 +274,7 @@ export default function Activity() {
     })
     await loadNotifications()
     setActionLoading(null)
+    showToast('Preuve refusée.')
   }
 
   function subscribeRealtime() {
@@ -281,6 +291,19 @@ export default function Activity() {
 
   return (
     <div style={styles.page}>
+      <AnimatePresence>
+        {toast && (
+          <motion.div
+            initial={{ opacity: 0, y: -16 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -16 }}
+            style={styles.toast}
+          >
+            {toast}
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       <header style={styles.header}>
         <Logo variant="full" />
       </header>
@@ -480,5 +503,23 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: '0.8125rem',
     cursor: 'pointer',
     minHeight: '36px',
+  },
+  toast: {
+    position: 'fixed',
+    top: '1rem',
+    left: '50%',
+    transform: 'translateX(-50%)',
+    background: '#14532d',
+    color: 'var(--color-success)',
+    border: '1px solid var(--color-success)',
+    borderRadius: '0.75rem',
+    padding: '0.75rem 1.25rem',
+    fontSize: '0.9rem',
+    fontWeight: 600,
+    zIndex: 300,
+    whiteSpace: 'nowrap',
+    maxWidth: '90vw',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
   },
 }

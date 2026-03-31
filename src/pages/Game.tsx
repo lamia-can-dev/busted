@@ -11,6 +11,7 @@ import Logo from '../components/Logo'
 import { generateGridFromPool } from '../lib/generateGrid'
 import { checkLines, checkColumns, checkDiagonals } from '../lib/bingoUtils'
 import { normalizeStatus } from '../lib/cellStatus'
+import { getUserColor } from '../lib/userColor'
 import Tutorial from '../components/Tutorial'
 
 // ─── Types ────────────────────────────────────────────────────
@@ -64,13 +65,7 @@ export default function Game() {
   const [showInvite, setShowInvite] = useState(false)
   const [copied, setCopied] = useState(false)
   const [showTutorial, setShowTutorial] = useState(() => {
-    if (localStorage.getItem('busted_tutorial_done')) return false
-    // Don't show to existing users: check for any other busted_ keys
-    for (let i = 0; i < localStorage.length; i++) {
-      const key = localStorage.key(i)
-      if (key && key.startsWith('busted_') && key !== 'busted_tutorial_done') return false
-    }
-    return true
+    return !localStorage.getItem('busted_tutorial_done')
   })
 
   useEffect(() => {
@@ -203,6 +198,9 @@ export default function Game() {
 
   const isColComplete = (c: number) => !!grid && checkColumns(grid.cells, n).includes(c)
   const isRowComplete = (r: number) => !!grid && checkLines(grid.cells, n).includes(r)
+  const diagComplete = grid ? checkDiagonals(grid.cells, n) : [false, false]
+  const isMainDiagComplete = diagComplete[0]
+  const isAntiDiagComplete = diagComplete[1]
 
   const DOT = 12 // px — width of row/col indicator slot
 
@@ -292,15 +290,31 @@ export default function Game() {
 
       {grid && (
         <div style={styles.gridWrapper}>
-          {/* ── Indicateurs de colonnes ── */}
+          {/* ── Indicateurs de colonnes + diagonales ── */}
           <div style={{ display: 'flex', gap: '4px', marginBottom: '4px', paddingLeft: DOT + 4 }}>
             {Array.from({ length: n }, (_, c) => (
-              <div key={c} style={{ flex: 1, display: 'flex', justifyContent: 'center' }}>
+              <div key={c} style={{ flex: 1, display: 'flex', justifyContent: 'center', position: 'relative' }}>
+                {c === 0 && (
+                  <motion.div
+                    animate={{ background: isMainDiagComplete ? '#FF5FCC' : '#3A3A5A' }}
+                    transition={{ duration: 0.4 }}
+                    style={{ ...styles.dot, position: 'absolute', left: 0, top: '50%', transform: 'translateY(-50%)' }}
+                    title="Diagonale ↘"
+                  />
+                )}
                 <motion.div
                   animate={{ background: isColComplete(c) ? '#FF5FCC' : '#3A3A5A' }}
                   transition={{ duration: 0.4 }}
                   style={styles.dot}
                 />
+                {c === n - 1 && (
+                  <motion.div
+                    animate={{ background: isAntiDiagComplete ? '#FF5FCC' : '#3A3A5A' }}
+                    transition={{ duration: 0.4 }}
+                    style={{ ...styles.dot, position: 'absolute', right: 0, top: '50%', transform: 'translateY(-50%)' }}
+                    title="Diagonale ↙"
+                  />
+                )}
               </div>
             ))}
           </div>
@@ -469,7 +483,7 @@ function CellCard({
         {cell.target?.avatar_url ? (
           <img src={cell.target.avatar_url} style={styles.avatar} alt="" />
         ) : (
-          <div style={styles.avatarFallback}>
+          <div style={{ ...styles.avatarFallback, background: cell.target ? getUserColor(cell.target.id) : 'var(--color-indigo)' }}>
             {cell.target?.username[0]?.toUpperCase() ?? '?'}
           </div>
         )}

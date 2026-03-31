@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
+import { getUserColor } from '../lib/userColor'
 import type { User } from '../../supabase/types'
 import { checkLines, checkColumns, checkDiagonals } from '../lib/bingoUtils'
 import { isValidated, normalizeStatus } from '../lib/cellStatus'
@@ -256,7 +257,7 @@ export default function Leaderboard() {
                 {player.user.avatar_url ? (
                   <img src={player.user.avatar_url} style={styles.avatar} alt="" />
                 ) : (
-                  <div style={styles.avatarFallback}>
+                  <div style={{ ...styles.avatarFallback, background: getUserColor(player.user.id) }}>
                     {player.user.username[0].toUpperCase()}
                   </div>
                 )}

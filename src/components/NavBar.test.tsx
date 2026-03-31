@@ -38,7 +38,7 @@ describe('NavBar', () => {
     renderNav()
     expect(screen.getByText('Grille')).toBeInTheDocument()
     expect(screen.getByText('Activité')).toBeInTheDocument()
-    expect(screen.getByText('Votes')).toBeInTheDocument()
+    expect(screen.getByText('Actions')).toBeInTheDocument()
     expect(screen.getByText('Classement')).toBeInTheDocument()
   })
 
