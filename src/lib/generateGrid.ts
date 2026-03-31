@@ -59,17 +59,17 @@ export async function generateGridFromPool(
   if (!proposals || proposals.length < cellCount)
     throw new Error(`Pas assez de paris approuvés dans le pool (minimum ${cellCount} requis)`)
 
-  // 2. Mélanger, dédupliquer par contenu, et prendre cellCount
+  // 2. Mélanger, dédupliquer par contenu+cible, et prendre cellCount
   const shuffled = shuffle(proposals)
   const seen = new Set<string>()
   const deduped = shuffled.filter((p) => {
-    const key = (p.content ?? '').trim().toLowerCase()
+    const key = `${p.target_user_id}::${(p.content ?? '').trim().toLowerCase()}`
     if (seen.has(key)) return false
     seen.add(key)
     return true
   })
   if (deduped.length < cellCount)
-    throw new Error(`Pas assez de paris uniques dans le pool (minimum ${cellCount} requis)`)
+    throw new Error(`Pas assez de paris uniques (${deduped.length}/${cellCount}). Proposez plus de paris variés !`)
   const picked = deduped.slice(0, cellCount)
 
   // 3. Créer la grille
@@ -101,7 +101,11 @@ export async function generateGridFromPool(
     )
     .select()
 
-  if (cellsError || !cells) throw new Error('Erreur insertion cases : ' + cellsError?.message)
+  if (cellsError || !cells) {
+    // Clean up orphaned grid
+    await supabase.from('grids').delete().eq('id', grid.id)
+    throw new Error('Erreur insertion cases : ' + cellsError?.message)
+  }
 
   // Générer les suggestions de défis pour la semaine (idempotent)
   await generateGroupSuggestions(groupId, weekStart)

@@ -1,8 +1,9 @@
 import { useRef, useState } from 'react'
-import { motion, AnimatePresence } from 'framer-motion'
+import { AnimatePresence, motion } from 'framer-motion'
 import { compressImage } from '../lib/compressImage'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
+import BottomSheet from './BottomSheet'
 
 interface Props {
   cell: {
@@ -33,9 +34,13 @@ export default function ProofSheet({ cell, onClose, onSubmitted }: Props) {
     const file = e.target.files?.[0]
     if (!file) return
     setCompressing(true)
-    const blob = await compressImage(file)
-    setImageFile(new File([blob], 'photo.jpg', { type: 'image/jpeg' }))
-    setImagePreview(URL.createObjectURL(blob))
+    try {
+      const blob = await compressImage(file)
+      setImageFile(new File([blob], 'photo.jpg', { type: 'image/jpeg' }))
+      setImagePreview(URL.createObjectURL(blob))
+    } catch {
+      setError('Impossible de traiter cette image. Essaie avec une autre.')
+    }
     setCompressing(false)
   }
 
@@ -93,22 +98,7 @@ export default function ProofSheet({ cell, onClose, onSubmitted }: Props) {
   }
 
   return (
-    <motion.div
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      exit={{ opacity: 0 }}
-      onClick={onClose}
-      style={styles.backdrop}
-    >
-      <motion.div
-        initial={{ y: '100%' }}
-        animate={{ y: 0 }}
-        exit={{ y: '100%' }}
-        transition={{ type: 'spring', damping: 28, stiffness: 300 }}
-        onClick={(e) => e.stopPropagation()}
-        style={styles.sheet}
-      >
-          <div style={styles.handle} />
+      <BottomSheet onClose={onClose}>
 
           {/* Toast */}
           <AnimatePresence>
@@ -198,8 +188,7 @@ export default function ProofSheet({ cell, onClose, onSubmitted }: Props) {
               </button>
             </div>
           </form>
-        </motion.div>
-      </motion.div>
+      </BottomSheet>
   )
 }
 
@@ -223,30 +212,6 @@ function GalleryIcon() {
 }
 
 const styles: Record<string, React.CSSProperties> = {
-  backdrop: {
-    position: 'fixed',
-    inset: 0,
-    background: 'rgba(0,0,0,0.6)',
-    zIndex: 200,
-    display: 'flex',
-    alignItems: 'flex-end',
-  },
-  sheet: {
-    background: 'var(--color-surface)',
-    borderRadius: '20px 20px 0 0',
-    padding: '0.75rem 1.5rem calc(2.5rem + env(safe-area-inset-bottom, 0px))',
-    width: '100%',
-    maxWidth: '560px',
-    margin: '0 auto',
-    boxShadow: '0 -4px 40px rgba(0,0,0,0.4)',
-  },
-  handle: {
-    width: '32px',
-    height: '3px',
-    background: 'var(--color-border)',
-    borderRadius: '2px',
-    margin: '0 auto 1.25rem',
-  },
   toast: {
     background: 'var(--color-success)',
     color: '#fff',

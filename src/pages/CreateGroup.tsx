@@ -5,7 +5,9 @@ import { useAuth } from '../contexts/AuthContext'
 import Logo from '../components/Logo'
 
 function generateInviteCode(): string {
-  return Math.random().toString(36).slice(2, 8).toUpperCase()
+  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
+  const bytes = crypto.getRandomValues(new Uint8Array(6))
+  return Array.from(bytes, (b) => chars[b % chars.length]).join('')
 }
 
 type Mode = 'create' | 'join'

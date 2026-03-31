@@ -1,9 +1,10 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
-import { getUserColor } from '../lib/userColor'
 import type { CellStatus } from '../lib/cellStatus'
+import BottomSheet from './BottomSheet'
+import Avatar from './Avatar'
 
 interface CellSheetCell {
   id: string
@@ -35,6 +36,8 @@ export default function CellSheet({ cell, onClose, onSubmitProof, onUpdated }: P
   const { userId } = useAuth()
   const [loading, setLoading] = useState(false)
   const [toast, setToast] = useState<string | null>(null)
+  const [confirmingDeny, setConfirmingDeny] = useState(false)
+  const submittingRef = useRef(false)
 
   // Status is already normalized by Game.tsx via normalizeStatus()
   const effectiveStatus = cell.status
@@ -45,9 +48,10 @@ export default function CellSheet({ cell, onClose, onSubmitProof, onUpdated }: P
   const isPendingConfirmation = effectiveStatus === 'pending_confirmation'
 
   async function handleConfirm() {
+    if (submittingRef.current) return
+    submittingRef.current = true
     setLoading(true)
     await supabase.from('cells').update({ status: 'busted' }).eq('id', cell.id)
-    // Insert a validation vote so Activity picks it up
     if (cell.submission) {
       await supabase.from('votes').insert({
         submission_id: cell.submission.id,
@@ -60,9 +64,14 @@ export default function CellSheet({ cell, onClose, onSubmitProof, onUpdated }: P
   }
 
   async function handleDeny() {
+    if (!confirmingDeny) {
+      setConfirmingDeny(true)
+      return
+    }
+    if (submittingRef.current) return
+    submittingRef.current = true
     setLoading(true)
     await supabase.from('cells').update({ status: 'rejected' }).eq('id', cell.id)
-    // Insert a rejection vote so Activity shows the notification to the submitter
     if (cell.submission) {
       await supabase.from('votes').insert({
         submission_id: cell.submission.id,
@@ -91,25 +100,11 @@ export default function CellSheet({ cell, onClose, onSubmitProof, onUpdated }: P
     : null
 
   return (
-    <motion.div
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      exit={{ opacity: 0 }}
-      onClick={onClose}
-      style={styles.backdrop}
-    >
-      <motion.div
-        initial={{ y: '100%' }}
-        animate={{ y: 0 }}
-        exit={{ y: '100%' }}
-        transition={{ type: 'spring', damping: 28, stiffness: 300 }}
-        onClick={(e) => e.stopPropagation()}
-        style={{
-          ...styles.sheet,
-          ...(isBusted ? { background: '#1A0A14', borderTop: '1.5px solid #FF5FCC' } : {}),
-        }}
+      <BottomSheet
+        onClose={onClose}
+        background={isBusted ? '#1A0A14' : undefined}
+        borderTop={isBusted ? '1.5px solid #FF5FCC' : undefined}
       >
-          <div style={styles.handle} />
 
           {/* Toast */}
           <AnimatePresence>
@@ -134,13 +129,12 @@ export default function CellSheet({ cell, onClose, onSubmitProof, onUpdated }: P
 
           {/* Avatar + pseudo + badge */}
           <div style={styles.targetRow}>
-            {cell.target?.avatar_url ? (
-              <img src={cell.target.avatar_url} style={styles.avatar} alt="" />
-            ) : (
-              <div style={{ ...styles.avatarFallback, background: getUserColor(cell.target_user_id) }}>
-                {cell.target?.username[0]?.toUpperCase() ?? '?'}
-              </div>
-            )}
+            <Avatar
+              src={cell.target?.avatar_url}
+              name={cell.target?.username ?? '?'}
+              userId={cell.target_user_id}
+              size={40}
+            />
             <span style={styles.username}>{cell.target?.username ?? '—'}</span>
             {roleBadge && (
               <span style={{ ...styles.badge, background: roleBadge.bg, border: `1px solid ${roleBadge.border}`, color: roleBadge.color }}>
@@ -194,8 +188,11 @@ export default function CellSheet({ cell, onClose, onSubmitProof, onUpdated }: P
                 <button onClick={handleConfirm} disabled={loading} style={styles.confirmBtn}>
                   Oui c'est vrai 😅
                 </button>
-                <button onClick={handleDeny} disabled={loading} style={styles.denyBtn}>
-                  Non c'est faux
+                <button onClick={handleDeny} disabled={loading} style={{
+                  ...styles.denyBtn,
+                  ...(confirmingDeny ? { borderColor: 'var(--color-error)', color: 'var(--color-error)' } : {}),
+                }}>
+                  {confirmingDeny ? 'Confirmer le refus ?' : "Non c'est faux"}
                 </button>
               </>
             )}
@@ -216,36 +213,11 @@ export default function CellSheet({ cell, onClose, onSubmitProof, onUpdated }: P
 
             <button onClick={onClose} style={styles.cancelBtn}>Fermer</button>
           </div>
-        </motion.div>
-      </motion.div>
+      </BottomSheet>
   )
 }
 
 const styles: Record<string, React.CSSProperties> = {
-  backdrop: {
-    position: 'fixed',
-    inset: 0,
-    background: 'rgba(0,0,0,0.6)',
-    zIndex: 200,
-    display: 'flex',
-    alignItems: 'flex-end',
-  },
-  sheet: {
-    background: 'var(--color-surface)',
-    borderRadius: '20px 20px 0 0',
-    padding: '0.75rem 1.5rem calc(2.5rem + env(safe-area-inset-bottom, 0px))',
-    width: '100%',
-    maxWidth: '560px',
-    margin: '0 auto',
-    boxShadow: '0 -4px 40px rgba(0,0,0,0.4)',
-  },
-  handle: {
-    width: '32px',
-    height: '3px',
-    background: 'var(--color-border)',
-    borderRadius: '2px',
-    margin: '0 auto 1.25rem',
-  },
   toast: {
     background: 'var(--color-success)',
     color: '#fff',
@@ -272,26 +244,6 @@ const styles: Record<string, React.CSSProperties> = {
     gap: '0.75rem',
     marginBottom: '1rem',
     flexWrap: 'wrap' as const,
-  },
-  avatar: {
-    width: '40px',
-    height: '40px',
-    borderRadius: '50%',
-    objectFit: 'cover',
-    flexShrink: 0,
-  },
-  avatarFallback: {
-    width: '40px',
-    height: '40px',
-    borderRadius: '50%',
-    background: 'var(--color-indigo)',
-    color: '#fff',
-    fontSize: '1rem',
-    fontWeight: 700,
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    flexShrink: 0,
   },
   username: {
     fontFamily: 'var(--font-body)',

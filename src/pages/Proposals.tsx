@@ -2,11 +2,12 @@ import { useEffect, useRef, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
-import { getUserColor } from '../lib/userColor'
+import { useToast } from '../hooks/useToast'
 import { currentWeekStart, generateGroupSuggestions } from '../lib/suggestChallenges'
 import type { Proposal, Suggestion } from '../../supabase/types'
 import Logo from '../components/Logo'
 import ProposeCell from '../components/ProposeCell'
+import Avatar from '../components/Avatar'
 
 // ─── Vote tracking (localStorage) ────────────────────────────
 
@@ -54,23 +55,9 @@ interface SuggestionWithTarget extends Suggestion {
 
 // ─── Helpers ──────────────────────────────────────────────────
 
-function Avatar({ user }: { user: UserInfo | null }) {
+function UserAvatar({ user }: { user: UserInfo | null }) {
   if (!user) return null
-  return user.avatar_url ? (
-    <img src={user.avatar_url} style={avatarStyle} alt="" />
-  ) : (
-    <div style={{ ...avatarStyle, ...avatarFallbackStyle, background: getUserColor(user.id) }}>
-      {user.username[0].toUpperCase()}
-    </div>
-  )
-}
-
-const avatarStyle: React.CSSProperties = {
-  width: '28px', height: '28px', borderRadius: '50%', objectFit: 'cover',
-}
-const avatarFallbackStyle: React.CSSProperties = {
-  background: 'var(--color-indigo)', color: 'var(--color-text-primary)', fontSize: '0.75rem', fontWeight: 700,
-  display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+  return <Avatar src={user.avatar_url} name={user.username} userId={user.id} size={28} />
 }
 
 // ─── Main ─────────────────────────────────────────────────────
@@ -82,21 +69,15 @@ export default function Proposals() {
   const [proposals, setProposals] = useState<ProposalWithUsers[]>([])
   const [suggestions, setSuggestions] = useState<SuggestionWithTarget[]>([])
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
   const [activeTab, setActiveTab] = useState<'pending' | 'approved'>('pending')
   const [showProposeCell, setShowProposeCell] = useState(false)
-  const [toast, setToast] = useState<string | null>(null)
+  const { toast, showToast } = useToast()
   const [votedIds, setVotedIds] = useState<Set<string>>(getVotedIds)
   const [dismissedIds, setDismissedIds] = useState<Set<string>>(getDismissedIds)
   const [suggestionIdx, setSuggestionIdx] = useState(0)
   const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null)
   const suggestionsChannelRef = useRef<ReturnType<typeof supabase.channel> | null>(null)
-  const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-
-  function showToast(msg: string) {
-    setToast(msg)
-    if (toastTimerRef.current) clearTimeout(toastTimerRef.current)
-    toastTimerRef.current = setTimeout(() => setToast(null), 3500)
-  }
 
   useEffect(() => {
     loadProposals()
@@ -173,8 +154,9 @@ export default function Proposals() {
 
   async function loadProposals() {
     setLoading(true)
+    setError(null)
 
-    const { data, error } = await supabase
+    const { data, error: fetchError } = await supabase
       .from('proposals')
       .select(`
         *,
@@ -185,7 +167,11 @@ export default function Proposals() {
       .neq('target_user_id', userId!)
       .order('vote_count', { ascending: false })
 
-    if (!error && data) setProposals(data as unknown as ProposalWithUsers[])
+    if (fetchError) {
+      setError('Erreur de chargement. Vérifie ta connexion.')
+    } else if (data) {
+      setProposals(data as unknown as ProposalWithUsers[])
+    }
     setLoading(false)
     subscribeRealtime()
   }
@@ -220,15 +206,12 @@ export default function Proposals() {
   }
 
   async function vote(proposal: ProposalWithUsers) {
-
-    // Marquer comme voté avant l'appel réseau
-    markVoted(proposal.id)
+    // Optimistic UI update (but don't persist to localStorage yet)
     setVotedIds((prev) => new Set([...prev, proposal.id]))
 
     const optimisticCount = proposal.vote_count + 1
     const optimisticApproved = optimisticCount >= THRESHOLD
 
-    // Optimistic update
     setProposals((prev) =>
       prev.map((p) =>
         p.id === proposal.id ? { ...p, vote_count: optimisticCount, is_approved: optimisticApproved } : p
@@ -239,7 +222,6 @@ export default function Proposals() {
       showToast(`✓ "${proposal.content.slice(0, 40)}${proposal.content.length > 40 ? '…' : ''}" est approuvé !`)
     }
 
-    // Use server-side atomic increment to prevent race conditions
     const { data, error } = await supabase.rpc('increment_vote_count', {
       proposal_id: proposal.id,
     })
@@ -247,17 +229,21 @@ export default function Proposals() {
     if (error) {
       console.error('[Proposals] vote update error:', error)
       // Rollback optimistic update
+      setVotedIds((prev) => { const next = new Set(prev); next.delete(proposal.id); return next })
       setProposals((prev) =>
         prev.map((p) => p.id === proposal.id ? { ...p, vote_count: proposal.vote_count, is_approved: proposal.is_approved } : p)
       )
-    } else if (data && Array.isArray(data) && data.length > 0) {
-      // Reconcile with actual server values
-      const serverResult = data[0] as { vote_count: number; is_approved: boolean }
-      setProposals((prev) =>
-        prev.map((p) => p.id === proposal.id ? { ...p, vote_count: serverResult.vote_count, is_approved: serverResult.is_approved } : p)
-      )
-      if (serverResult.is_approved && !optimisticApproved) {
-        showToast(`✓ "${proposal.content.slice(0, 40)}${proposal.content.length > 40 ? '…' : ''}" est approuvé !`)
+    } else {
+      // RPC succeeded — persist to localStorage
+      markVoted(proposal.id)
+      if (data && Array.isArray(data) && data.length > 0) {
+        const serverResult = data[0] as { vote_count: number; is_approved: boolean }
+        setProposals((prev) =>
+          prev.map((p) => p.id === proposal.id ? { ...p, vote_count: serverResult.vote_count, is_approved: serverResult.is_approved } : p)
+        )
+        if (serverResult.is_approved && !optimisticApproved) {
+          showToast(`✓ "${proposal.content.slice(0, 40)}${proposal.content.length > 40 ? '…' : ''}" est approuvé !`)
+        }
       }
     }
   }
@@ -327,6 +313,13 @@ export default function Proposals() {
 
       {loading && <p style={styles.hint}>Chargement...</p>}
 
+      {error && (
+        <div style={{ textAlign: 'center', marginTop: '2rem' }}>
+          <p style={{ color: 'var(--color-error)', fontSize: '0.875rem' }}>{error}</p>
+          <button onClick={loadProposals} style={styles.retryBtn}>Réessayer</button>
+        </div>
+      )}
+
       <AnimatePresence mode="wait">
         {activeTab === 'pending' ? (
           <motion.div
@@ -352,7 +345,7 @@ export default function Proposals() {
                       style={styles.suggestionCard}
                     >
                       <div style={styles.targetRow}>
-                        <Avatar user={s.target} />
+                        <UserAvatar user={s.target} />
                         <span style={styles.targetName}>{s.target?.username ?? '—'}</span>
                       </div>
                       <p style={styles.content}>"{s.content}"</p>
@@ -520,7 +513,7 @@ function ProposalCard({
     >
       <div style={styles.cardHeader}>
         <div style={styles.targetRow}>
-          <Avatar user={proposal.target} />
+          <UserAvatar user={proposal.target} />
           <span style={styles.targetName}>{proposal.target?.username ?? '—'}</span>
         </div>
         <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
@@ -541,7 +534,7 @@ function ProposalCard({
       <p style={styles.content}>"{proposal.content}"</p>
 
       <div style={styles.proposerRow}>
-        <Avatar user={proposal.proposer} />
+        <UserAvatar user={proposal.proposer} />
         <span style={styles.proposerName}>proposé par {proposal.proposer?.username ?? '—'}</span>
       </div>
 
@@ -895,5 +888,18 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: '0.85rem',
     textAlign: 'center',
     marginTop: '1rem',
+  },
+  retryBtn: {
+    background: 'var(--color-surface)',
+    color: 'var(--color-text-primary)',
+    border: '1px solid var(--color-border)',
+    borderRadius: '10px',
+    padding: '0.5rem 1.25rem',
+    fontFamily: 'var(--font-body)',
+    fontWeight: 700,
+    fontSize: '0.875rem',
+    cursor: 'pointer',
+    marginTop: '0.75rem',
+    minHeight: '36px',
   },
 }

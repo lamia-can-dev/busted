@@ -45,10 +45,14 @@ export default function Onboarding() {
     const file = e.target.files?.[0]
     if (!file) return
     setCompressing(true)
-    const blob = await compressImage(file)
-    const compressed = new File([blob], 'photo.jpg', { type: 'image/jpeg' })
-    setAvatarFile(compressed)
-    setAvatarPreview(URL.createObjectURL(blob))
+    try {
+      const blob = await compressImage(file)
+      const compressed = new File([blob], 'photo.jpg', { type: 'image/jpeg' })
+      setAvatarFile(compressed)
+      setAvatarPreview(URL.createObjectURL(blob))
+    } catch {
+      setError('Impossible de traiter cette image. Essaie avec une autre.')
+    }
     setCompressing(false)
   }
 

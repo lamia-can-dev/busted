@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 
 interface Props {
+  userId: string
   onComplete: () => void
 }
 
@@ -44,11 +45,11 @@ const STEPS = [
   },
 ]
 
-export default function Tutorial({ onComplete }: Props) {
+export default function Tutorial({ userId, onComplete }: Props) {
   const [step, setStep] = useState(0)
 
   function finish() {
-    localStorage.setItem('busted_tutorial_done', 'true')
+    localStorage.setItem(`busted_tutorial_done_${userId}`, 'true')
     onComplete()
   }
 

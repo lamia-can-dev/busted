@@ -12,6 +12,7 @@ import { generateGridFromPool } from '../lib/generateGrid'
 import { checkLines, checkColumns, checkDiagonals } from '../lib/bingoUtils'
 import { normalizeStatus } from '../lib/cellStatus'
 import { getUserColor } from '../lib/userColor'
+import Avatar from '../components/Avatar'
 import Tutorial from '../components/Tutorial'
 
 // ─── Types ────────────────────────────────────────────────────
@@ -35,10 +36,10 @@ type SelectedCell = GridWithCells['cells'][number]
 
 // ─── Config by grid size ───────────────────────────────────────
 
-const CELL_CONFIG: Record<number, { fontSize: number }> = {
-  3: { fontSize: 11 },
-  4: { fontSize: 10 },
-  5: { fontSize: 9 },
+const CELL_CONFIG: Record<number, { fontSize: number; minHeight: string }> = {
+  3: { fontSize: 12, minHeight: '110px' },
+  4: { fontSize: 10, minHeight: '85px' },
+  5: { fontSize: 9, minHeight: '70px' },
 }
 
 // ─── Main ─────────────────────────────────────────────────────
@@ -59,13 +60,14 @@ export default function Game() {
   const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null)
 
   const [approvedCount, setApprovedCount] = useState(0)
+  const [requiredCount, setRequiredCount] = useState(9)
   const [generating, setGenerating] = useState(false)
   const [generateError, setGenerateError] = useState<string | null>(null)
   const [inviteCode, setInviteCode] = useState<string | null>(null)
   const [showInvite, setShowInvite] = useState(false)
   const [copied, setCopied] = useState(false)
   const [showTutorial, setShowTutorial] = useState(() => {
-    return !localStorage.getItem('busted_tutorial_done')
+    return !localStorage.getItem(`busted_tutorial_done_${userId}`)
   })
 
   useEffect(() => {
@@ -87,13 +89,22 @@ export default function Game() {
 
     if (gridError) { setError(gridError.message); setLoading(false); return }
     if (!grids || grids.length === 0) {
-      const { count } = await supabase
-        .from('proposals')
-        .select('id', { count: 'exact', head: true })
-        .eq('group_id', groupId!)
-        .neq('target_user_id', userId!)
-        .eq('is_approved', true)
-      setApprovedCount(count ?? 0)
+      // Fetch group grid_size and actual proposals to compute unique count
+      const [{ data: group }, { data: proposals }] = await Promise.all([
+        supabase.from('groups').select('grid_size').eq('id', groupId!).single(),
+        supabase.from('proposals').select('target_user_id, content')
+          .eq('group_id', groupId!).neq('target_user_id', userId!).eq('is_approved', true),
+      ])
+      const cellCount = (group?.grid_size ?? 3) ** 2
+      setRequiredCount(cellCount)
+      // Deduplicate same way as generateGrid: by target_user_id + content
+      const seen = new Set<string>()
+      let uniqueCount = 0
+      for (const p of proposals ?? []) {
+        const key = `${p.target_user_id}::${(p.content ?? '').trim().toLowerCase()}`
+        if (!seen.has(key)) { seen.add(key); uniqueCount++ }
+      }
+      setApprovedCount(uniqueCount)
       setLoading(false)
       return
     }
@@ -146,7 +157,7 @@ export default function Game() {
     const newBingoCount = checkLines(newCells, n).length + checkColumns(newCells, n).length + diags.filter(Boolean).length
     if (!isFirstLoadRef.current && newBingoCount > prevBingoCountRef.current) {
       setShowBingo(true)
-      setTimeout(() => setShowBingo(false), 4000)
+      setTimeout(() => setShowBingo(false), 5000)
       // Multi-burst confetti from different angles
       const colors = ['#FF5FCC', '#6366F1', '#FACC15', '#22c55e', '#f97316']
       confetti({ particleCount: 80, spread: 70, origin: { x: 0.3, y: 0.5 }, colors, angle: 60 })
@@ -166,6 +177,9 @@ export default function Game() {
       .channel('game-realtime')
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'votes' }, () => loadGrid())
       .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'cells' }, () => loadGrid())
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'submissions' }, () => loadGrid())
+      .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'submissions' }, () => loadGrid())
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'proposals' }, () => loadGrid())
       .subscribe()
   }
 
@@ -209,7 +223,7 @@ export default function Game() {
       {/* Tutorial overlay */}
       <AnimatePresence>
         {showTutorial && (
-          <Tutorial onComplete={() => setShowTutorial(false)} />
+          <Tutorial userId={userId!} onComplete={() => setShowTutorial(false)} />
         )}
       </AnimatePresence>
 
@@ -222,27 +236,43 @@ export default function Game() {
             exit={{ opacity: 0 }}
             transition={{ duration: 0.3 }}
             style={styles.bingoOverlay}
+            onClick={() => setShowBingo(false)}
           >
-            <div style={styles.bingoLetters}>
-              {'BINGO !'.split('').map((ch, i) => (
-                <motion.span
-                  key={i}
-                  initial={{ opacity: 0, y: 40, scale: 0.3, rotate: -15 }}
-                  animate={{ opacity: 1, y: 0, scale: 1, rotate: 0 }}
-                  transition={{ delay: 0.15 + i * 0.08, type: 'spring', damping: 10, stiffness: 200 }}
-                  style={ch === ' ' ? styles.bingoSpace : styles.bingoLetter}
-                >
-                  {ch}
-                </motion.span>
-              ))}
-            </div>
             <motion.div
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.9, duration: 0.4 }}
-              style={styles.bingoSub}
+              initial={{ scale: 0.6, opacity: 0 }}
+              animate={{ scale: [0.6, 1.1, 1], opacity: 1 }}
+              transition={{ duration: 0.5, times: [0, 0.6, 1] }}
+              style={styles.bingoContent}
             >
-              Tu as complété une ligne !
+              <div style={styles.bingoLetters}>
+                {'BINGO !'.split('').map((ch, i) => (
+                  <motion.span
+                    key={i}
+                    initial={{ opacity: 0, y: 50, scale: 0, rotate: -20 }}
+                    animate={{ opacity: 1, y: 0, scale: 1, rotate: 0 }}
+                    transition={{ delay: 0.2 + i * 0.07, type: 'spring', damping: 8, stiffness: 250 }}
+                    style={ch === ' ' ? styles.bingoSpace : styles.bingoLetter}
+                  >
+                    {ch}
+                  </motion.span>
+                ))}
+              </div>
+              <motion.div
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.8, duration: 0.4 }}
+                style={styles.bingoSub}
+              >
+                Tu as complété une ligne !
+              </motion.div>
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 0.5 }}
+                transition={{ delay: 1.2, duration: 0.4 }}
+                style={styles.bingoDismiss}
+              >
+                Touche pour fermer
+              </motion.div>
             </motion.div>
           </motion.div>
         )}
@@ -269,11 +299,11 @@ export default function Game() {
         <div style={styles.emptyState}>
           <p style={styles.emptyText}>Pas encore de grille pour cette semaine.</p>
           <div style={styles.progressChip}>
-            <span style={{ color: approvedCount >= 9 ? 'var(--color-success)' : 'var(--color-text-secondary)' }}>
-              {approvedCount}/9 paris approuvés
+            <span style={{ color: approvedCount >= requiredCount ? 'var(--color-success)' : 'var(--color-text-secondary)' }}>
+              {approvedCount}/{requiredCount} paris uniques
             </span>
           </div>
-          {approvedCount >= 9 ? (
+          {approvedCount >= requiredCount ? (
             <>
               <button onClick={handleGenerate} disabled={generating} style={styles.generateBtn}>
                 {generating ? 'Génération...' : 'Générer ma grille →'}
@@ -281,12 +311,17 @@ export default function Game() {
               {generateError && <p style={styles.error}>{generateError}</p>}
             </>
           ) : (
-            <p style={styles.hint}>Propose des paris dans l'onglet Votes pour atteindre les 9 requis.</p>
+            <p style={styles.hint}>Propose des paris variés dans l'onglet Votes pour atteindre les {requiredCount} requis.</p>
           )}
         </div>
       )}
 
-      {error && <p style={styles.error}>{error}</p>}
+      {error && (
+        <div style={{ textAlign: 'center' }}>
+          <p style={styles.error}>{error}</p>
+          <button onClick={loadGrid} style={styles.retryBtn}>Réessayer</button>
+        </div>
+      )}
 
       {grid && (
         <div style={styles.gridWrapper}>
@@ -339,6 +374,7 @@ export default function Game() {
                     key={cell?.id ?? `${r}-${c}`}
                     cell={cell}
                     fontSize={cellCfg.fontSize}
+                    minHeight={cellCfg.minHeight}
                     onClick={() => { if (cell) { setSelectedCell(cell); setShowCellSheet(true) } }}
                   />
                 )
@@ -443,13 +479,15 @@ export default function Game() {
 function CellCard({
   cell,
   fontSize,
+  minHeight,
   onClick,
 }: {
   cell: GridWithCells['cells'][number] | undefined
   fontSize: number
+  minHeight: string
   onClick: () => void
 }) {
-  if (!cell) return <div style={{ flex: 1 }} />
+  if (!cell) return <div style={{ flex: 1, minHeight }} />
 
   const { status } = cell
 
@@ -476,24 +514,23 @@ function CellCard({
       onClick={onClick}
       animate={{ borderColor }}
       transition={{ duration: 0.35 }}
-      style={{ ...styles.cell, cursor: 'pointer', background: bgColor }}
+      style={{ ...styles.cell, cursor: 'pointer', background: bgColor, minHeight }}
     >
       {/* Ligne du haut : avatar + pseudo */}
       <div style={styles.cellTop}>
-        {cell.target?.avatar_url ? (
-          <img src={cell.target.avatar_url} style={styles.avatar} alt="" />
-        ) : (
-          <div style={{ ...styles.avatarFallback, background: cell.target ? getUserColor(cell.target.id) : 'var(--color-indigo)' }}>
-            {cell.target?.username[0]?.toUpperCase() ?? '?'}
-          </div>
-        )}
+        <Avatar
+          src={cell.target?.avatar_url}
+          name={cell.target?.username ?? '?'}
+          userId={cell.target?.id ?? ''}
+          size={14}
+        />
         <span style={{ ...styles.targetName, fontSize }}>
           {cell.target?.username ?? '—'}
         </span>
       </div>
 
       {/* Texte du défi */}
-      <p style={{ ...styles.cellContent, fontSize, WebkitLineClamp: strip ? 2 : 3 } as React.CSSProperties}>
+      <p style={{ ...styles.cellContent, fontSize, WebkitLineClamp: strip ? 3 : 4 } as React.CSSProperties}>
         {cell.content}
       </p>
 
@@ -526,33 +563,45 @@ const styles: Record<string, React.CSSProperties> = {
     flexDirection: 'column',
     alignItems: 'center',
     justifyContent: 'center',
-    background: 'radial-gradient(ellipse at center, rgba(99,102,241,0.15) 0%, rgba(0,0,0,0.85) 70%)',
+    background: 'radial-gradient(ellipse at center, rgba(99,102,241,0.2) 0%, rgba(0,0,0,0.88) 65%)',
     zIndex: 300,
-    pointerEvents: 'none',
+    cursor: 'pointer',
+  },
+  bingoContent: {
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'center',
   },
   bingoLetters: {
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: '0.1em',
+    gap: '0.05em',
   },
   bingoLetter: {
-    fontSize: 'clamp(3.5rem, 12vw, 5.5rem)',
+    fontSize: 'clamp(3.5rem, 14vw, 6rem)',
     fontWeight: 900,
     fontFamily: 'var(--font-title)',
     color: '#FACC15',
-    textShadow: '0 0 30px rgba(250,204,21,0.9), 0 0 60px rgba(255,95,204,0.4), 0 4px 12px rgba(0,0,0,0.5)',
+    textShadow: '0 0 40px rgba(250,204,21,0.95), 0 0 80px rgba(255,95,204,0.5), 0 0 120px rgba(99,102,241,0.3), 0 4px 12px rgba(0,0,0,0.6)',
     display: 'inline-block',
   },
   bingoSpace: {
-    width: '0.3em',
+    width: '0.25em',
   },
   bingoSub: {
     color: 'var(--color-text-primary)',
-    fontSize: 'clamp(0.9rem, 3vw, 1.15rem)',
-    marginTop: '0.75rem',
+    fontSize: 'clamp(1rem, 3.5vw, 1.25rem)',
+    marginTop: '1rem',
     fontFamily: 'var(--font-body)',
+    fontWeight: 600,
     opacity: 0.9,
+  },
+  bingoDismiss: {
+    color: 'var(--color-text-secondary)',
+    fontSize: '0.8rem',
+    marginTop: '1.5rem',
+    fontFamily: 'var(--font-body)',
   },
   header: {
     display: 'flex',
@@ -655,17 +704,19 @@ const styles: Record<string, React.CSSProperties> = {
     flexWrap: 'wrap',
     gap: '0.5rem',
     marginTop: '0.875rem',
+    justifyContent: 'center',
   },
   bingoPill: {
-    background: 'rgba(255,95,204,0.15)',
+    background: 'linear-gradient(135deg, rgba(255,95,204,0.2) 0%, rgba(99,102,241,0.2) 100%)',
     color: '#FF5FCC',
-    border: '1px solid #FF5FCC',
+    border: '1px solid rgba(255,95,204,0.6)',
     borderRadius: '999px',
-    padding: '0.3rem 0.875rem',
+    padding: '0.375rem 1rem',
     fontSize: '0.8rem',
     fontWeight: 700,
     fontFamily: 'var(--font-body)',
-    boxShadow: '0 0 8px rgba(255,95,204,0.3)',
+    boxShadow: '0 0 12px rgba(255,95,204,0.3), inset 0 0 8px rgba(255,95,204,0.1)',
+    letterSpacing: '0.05em',
   },
   emptyState: {
     textAlign: 'center',
@@ -688,6 +739,19 @@ const styles: Record<string, React.CSSProperties> = {
     color: 'var(--color-error)',
     textAlign: 'center',
     fontSize: '0.875rem',
+  },
+  retryBtn: {
+    background: 'var(--color-surface)',
+    color: 'var(--color-text-primary)',
+    border: '1px solid var(--color-border)',
+    borderRadius: '10px',
+    padding: '0.5rem 1.25rem',
+    fontFamily: 'var(--font-body)',
+    fontWeight: 700,
+    fontSize: '0.875rem',
+    cursor: 'pointer',
+    marginTop: '0.75rem',
+    minHeight: '36px',
   },
   fab: {
     position: 'fixed',

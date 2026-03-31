@@ -54,11 +54,19 @@ function mockFromByTable(overrides: Record<string, { data: unknown; error: unkno
   })
 }
 
+/** Generate N unique mock proposals for the no-grid empty state */
+function makeMockProposals(n: number) {
+  return Array.from({ length: n }, (_, i) => ({
+    target_user_id: `user-${2 + (i % 3)}`,
+    content: `Unique pari ${i}`,
+  }))
+}
+
 beforeEach(() => {
   vi.clearAllMocks()
   vi.mocked(useAuth).mockReturnValue({ userId: 'user-1', groupId: 'group-1', loading: false, signOut: vi.fn(), refreshGroupId: vi.fn(), loginAs: vi.fn() })
   vi.mocked(supabase.channel).mockReturnValue(makeChannelMock() as unknown as ReturnType<typeof supabase.channel>)
-  localStorage.setItem('busted_tutorial_done', 'true')
+  localStorage.setItem('busted_tutorial_done_user-1', 'true')
   Object.defineProperty(navigator, 'clipboard', {
     value: { writeText: vi.fn().mockResolvedValue(undefined) },
     writable: true,
@@ -75,34 +83,34 @@ describe('Game — no grid', () => {
   })
 
   it('shows empty state when no grid exists', async () => {
-    mockFromByTable({ grids: { data: [], error: null }, proposals: { data: null, error: null, count: 3 } })
+    mockFromByTable({ grids: { data: [], error: null }, groups: { data: { grid_size: 3 }, error: null }, proposals: { data: makeMockProposals(3), error: null } })
     render(<MemoryRouter><Game /></MemoryRouter>)
     await screen.findByText('Pas encore de grille pour cette semaine.')
   })
 
-  it('shows approved proposal count', async () => {
-    mockFromByTable({ grids: { data: [], error: null }, proposals: { data: null, error: null, count: 10 } })
+  it('shows unique proposal count', async () => {
+    mockFromByTable({ grids: { data: [], error: null }, groups: { data: { grid_size: 3 }, error: null }, proposals: { data: makeMockProposals(10), error: null } })
     render(<MemoryRouter><Game /></MemoryRouter>)
-    await screen.findByText(/10\/9 paris approuvés/)
+    await screen.findByText(/10\/9 paris uniques/)
   })
 
-  it('shows generate button when ≥9 proposals approved', async () => {
-    mockFromByTable({ grids: { data: [], error: null }, proposals: { data: null, error: null, count: 10 } })
+  it('shows generate button when ≥9 unique proposals', async () => {
+    mockFromByTable({ grids: { data: [], error: null }, groups: { data: { grid_size: 3 }, error: null }, proposals: { data: makeMockProposals(10), error: null } })
     render(<MemoryRouter><Game /></MemoryRouter>)
     await screen.findByRole('button', { name: /générer ma grille/i })
   })
 
-  it('does not show generate button when <9 proposals', async () => {
-    mockFromByTable({ grids: { data: [], error: null }, proposals: { data: null, error: null, count: 5 } })
+  it('does not show generate button when <9 unique proposals', async () => {
+    mockFromByTable({ grids: { data: [], error: null }, groups: { data: { grid_size: 3 }, error: null }, proposals: { data: makeMockProposals(5), error: null } })
     render(<MemoryRouter><Game /></MemoryRouter>)
-    await screen.findByText(/5\/9 paris approuvés/)
+    await screen.findByText(/5\/9 paris uniques/)
     expect(screen.queryByRole('button', { name: /générer/i })).toBeNull()
   })
 
-  it('shows hint to go vote when fewer than 9 proposals', async () => {
-    mockFromByTable({ grids: { data: [], error: null }, proposals: { data: null, error: null, count: 2 } })
+  it('shows hint to go vote when fewer than required proposals', async () => {
+    mockFromByTable({ grids: { data: [], error: null }, groups: { data: { grid_size: 3 }, error: null }, proposals: { data: makeMockProposals(2), error: null } })
     render(<MemoryRouter><Game /></MemoryRouter>)
-    await screen.findByText(/propose des paris dans l'onglet votes/i)
+    await screen.findByText(/propose des paris variés dans l'onglet votes/i)
   })
 
   it('calls generateGridFromPool when generate is clicked', async () => {
@@ -113,7 +121,8 @@ describe('Game — no grid', () => {
         callCount++
         return makeQueryBuilder({ data: callCount > 1 ? [mockGrid] : [], error: null }) as ReturnType<typeof supabase.from>
       }
-      if (table === 'proposals') return makeQueryBuilder({ data: null, error: null, count: 10 }) as ReturnType<typeof supabase.from>
+      if (table === 'groups') return makeQueryBuilder({ data: { grid_size: 3 }, error: null }) as ReturnType<typeof supabase.from>
+      if (table === 'proposals') return makeQueryBuilder({ data: makeMockProposals(10), error: null }) as ReturnType<typeof supabase.from>
       return makeQueryBuilder({ data: [], error: null }) as ReturnType<typeof supabase.from>
     })
     render(<MemoryRouter><Game /></MemoryRouter>)
@@ -123,7 +132,7 @@ describe('Game — no grid', () => {
 
   it('shows error when grid generation fails', async () => {
     vi.mocked(generateGridFromPool).mockRejectedValue(new Error('Pas assez de paris'))
-    mockFromByTable({ grids: { data: [], error: null }, proposals: { data: null, error: null, count: 10 } })
+    mockFromByTable({ grids: { data: [], error: null }, groups: { data: { grid_size: 3 }, error: null }, proposals: { data: makeMockProposals(10), error: null } })
     render(<MemoryRouter><Game /></MemoryRouter>)
     await userEvent.click(await screen.findByRole('button', { name: /générer ma grille/i }))
     await screen.findByText('Pas assez de paris')

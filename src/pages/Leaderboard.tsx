@@ -2,11 +2,12 @@ import { useEffect, useRef, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
-import { getUserColor } from '../lib/userColor'
 import type { User } from '../../supabase/types'
 import { checkLines, checkColumns, checkDiagonals } from '../lib/bingoUtils'
 import { isValidated, normalizeStatus } from '../lib/cellStatus'
+import { currentWeekStart } from '../lib/suggestChallenges'
 import Logo from '../components/Logo'
+import Avatar from '../components/Avatar'
 
 // ─── Types ────────────────────────────────────────────────────
 
@@ -62,6 +63,7 @@ export default function Leaderboard() {
   const { userId, groupId } = useAuth()
   const [scores, setScores] = useState<PlayerScore[]>([])
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
   const [countdown, setCountdown] = useState('')
   const [flashIds, setFlashIds] = useState<Set<string>>(new Set())
   const [expandedId, setExpandedId] = useState<string | null>(null)
@@ -74,14 +76,33 @@ export default function Leaderboard() {
     return () => { channelRef.current?.unsubscribe() }
   }, [])
 
-  // Countdown tick
+  // Countdown tick — pause when tab is hidden
   useEffect(() => {
-    const interval = setInterval(() => {
-      if (revealTargetRef.current) {
-        setCountdown(formatCountdown(revealTargetRef.current))
-      }
-    }, 1000)
-    return () => clearInterval(interval)
+    let interval: ReturnType<typeof setInterval> | null = null
+
+    function start() {
+      if (interval) return
+      interval = setInterval(() => {
+        if (revealTargetRef.current) {
+          setCountdown(formatCountdown(revealTargetRef.current))
+        }
+      }, 1000)
+    }
+
+    function stop() {
+      if (interval) { clearInterval(interval); interval = null }
+    }
+
+    function onVisibilityChange() {
+      if (document.hidden) stop(); else start()
+    }
+
+    start()
+    document.addEventListener('visibilitychange', onVisibilityChange)
+    return () => {
+      stop()
+      document.removeEventListener('visibilitychange', onVisibilityChange)
+    }
   }, [])
 
   async function init() {
@@ -101,15 +122,19 @@ export default function Leaderboard() {
 
   async function loadScores() {
     setLoading(true)
+    setError(null)
 
+    const weekStart = currentWeekStart()
     const [membersRes, cellsRes] = await Promise.all([
       supabase.from('users').select('*').eq('group_id', groupId!),
       supabase.from('cells')
-        .select('grid_id, content, target_user_id, status, created_at, grid:grids(owner_user_id)')
+        .select('grid_id, content, target_user_id, status, created_at, grid:grids(owner_user_id, week_start)')
+        .gte('created_at', weekStart)
         .order('position', { ascending: true }),
     ])
 
     if (membersRes.error || cellsRes.error || !membersRes.data) {
+      setError('Erreur de chargement. Vérifie ta connexion.')
       setLoading(false)
       return
     }
@@ -199,14 +224,10 @@ export default function Leaderboard() {
   function subscribeRealtime() {
     channelRef.current = supabase
       .channel('leaderboard-realtime')
-      .on('postgres_changes',
-        { event: 'UPDATE', schema: 'public', table: 'cells' },
-        () => loadScores()
-      )
-      .on('postgres_changes',
-        { event: 'INSERT', schema: 'public', table: 'votes' },
-        () => loadScores()
-      )
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'cells' }, () => loadScores())
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'votes' }, () => loadScores())
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'submissions' }, () => loadScores())
+      .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'submissions' }, () => loadScores())
       .subscribe()
   }
 
@@ -223,7 +244,14 @@ export default function Leaderboard() {
 
       {loading && <p style={styles.hint}>Chargement...</p>}
 
-      {!loading && scores.length === 0 && (
+      {error && (
+        <div style={{ textAlign: 'center', marginTop: '2rem' }}>
+          <p style={{ color: 'var(--color-error)', fontSize: '0.875rem' }}>{error}</p>
+          <button onClick={loadScores} style={styles.retryBtn}>Réessayer</button>
+        </div>
+      )}
+
+      {!loading && !error && scores.length === 0 && (
         <p style={styles.hint}>Aucun membre dans le groupe.</p>
       )}
 
@@ -254,13 +282,12 @@ export default function Leaderboard() {
                 </span>
 
                 {/* Avatar */}
-                {player.user.avatar_url ? (
-                  <img src={player.user.avatar_url} style={styles.avatar} alt="" />
-                ) : (
-                  <div style={{ ...styles.avatarFallback, background: getUserColor(player.user.id) }}>
-                    {player.user.username[0].toUpperCase()}
-                  </div>
-                )}
+                <Avatar
+                  src={player.user.avatar_url}
+                  name={player.user.username}
+                  userId={player.user.id}
+                  size={40}
+                />
 
                 {/* Name + score */}
                 <div style={styles.nameBlock}>
@@ -405,26 +432,6 @@ const styles: Record<string, React.CSSProperties> = {
     minWidth: '2rem',
     textAlign: 'center',
   },
-  avatar: {
-    width: '40px',
-    height: '40px',
-    borderRadius: '50%',
-    objectFit: 'cover',
-    flexShrink: 0,
-  },
-  avatarFallback: {
-    width: '40px',
-    height: '40px',
-    borderRadius: '50%',
-    background: 'var(--color-indigo)',
-    color: 'var(--color-text-primary)',
-    fontSize: '1rem',
-    fontWeight: 700,
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    flexShrink: 0,
-  },
   nameBlock: {
     flex: 1,
     display: 'flex',
@@ -488,5 +495,18 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: '0.85rem',
     textAlign: 'center',
     marginTop: '2rem',
+  },
+  retryBtn: {
+    background: 'var(--color-surface)',
+    color: 'var(--color-text-primary)',
+    border: '1px solid var(--color-border)',
+    borderRadius: '10px',
+    padding: '0.5rem 1.25rem',
+    fontFamily: 'var(--font-body)',
+    fontWeight: 700,
+    fontSize: '0.875rem',
+    cursor: 'pointer',
+    marginTop: '0.75rem',
+    minHeight: '36px',
   },
 }

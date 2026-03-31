@@ -2,9 +2,45 @@ import { useEffect, useRef, useState } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
+import { useToast } from '../hooks/useToast'
 import Logo from '../components/Logo'
 
 // ─── Types ────────────────────────────────────────────────────
+
+interface TargetedSubmission {
+  id: string
+  submitter_user_id: string
+  proof_image_url: string | null
+  created_at: string
+  submitter: { id: string; username: string } | null
+}
+
+interface TargetedCell {
+  id: string
+  content: string | null
+  status: string | null
+  submissions: TargetedSubmission[]
+}
+
+interface MySubmission {
+  id: string
+  proof_image_url: string | null
+  created_at: string
+  cell: {
+    content: string
+    target_user_id: string
+    status?: string
+    target: { id: string; username: string } | null
+  } | null
+  votes: { voter_user_id: string; is_valid: boolean; created_at: string }[]
+}
+
+interface ApprovedProposal {
+  id: string
+  content: string
+  created_at: string
+  target: { id: string; username: string } | null
+}
 
 type NotifType = 'vote_required' | 'busted' | 'proof_validated' | 'proof_rejected' | 'proof_pending' | 'challenge_approved'
 
@@ -72,10 +108,13 @@ export default function Activity() {
 
   const [notifications, setNotifications] = useState<AppNotification[]>([])
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
   const [actionLoading, setActionLoading] = useState<string | null>(null)
-  const [toast, setToast] = useState<string | null>(null)
+  const { toast, showToast } = useToast()
+  const [confirmingDenyId, setConfirmingDenyId] = useState<string | null>(null)
   const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null)
-  const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const markReadTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const submittingRef = useRef(false)
 
   useEffect(() => {
     loadNotifications()
@@ -87,6 +126,7 @@ export default function Activity() {
 
   async function loadNotifications() {
     setLoading(true)
+    setError(null)
 
     const [targetedRes, mySubmissionsRes, proposalsRes] = await Promise.all([
       // Cellules où JE suis la cible (RLS corrigée → requête directe)
@@ -116,16 +156,22 @@ export default function Activity() {
         .eq('is_approved', true),
     ])
 
+    if (targetedRes.error || mySubmissionsRes.error || proposalsRes.error) {
+      setError('Erreur de chargement. Vérifie ta connexion.')
+      setLoading(false)
+      return
+    }
+
     const notifs: AppNotification[] = []
     const seenIds = readSeenIds()
 
     // Notifications où je suis la cible
-    const targetedCells = (targetedRes.data ?? []) as any[]
+    const targetedCells = (targetedRes.data ?? []) as unknown as TargetedCell[]
     for (const cell of targetedCells) {
       const cellStatus = (cell.status ?? 'unchecked') as string
-      const cellSubmissions = (cell.submissions ?? []) as any[]
+      const cellSubmissions = cell.submissions ?? []
       for (const s of cellSubmissions) {
-        const submitter = s.submitter as { id: string; username: string } | null
+        const submitter = s.submitter
         if (cellStatus === 'pending_confirmation') {
           const id = `vote_required_${s.id}`
           notifs.push({
@@ -166,10 +212,10 @@ export default function Activity() {
     }
 
     // Notifications où je suis le soumetteur
-    const mySubmissions = (mySubmissionsRes.data ?? []) as any[]
+    const mySubmissions = (mySubmissionsRes.data ?? []) as unknown as MySubmission[]
     for (const s of mySubmissions) {
-      const cell = s.cell as { content: string; target_user_id: string; status?: string; target: { id: string; username: string } | null } | null
-      const votes = (s.votes ?? []) as { voter_user_id: string; is_valid: boolean; created_at: string }[]
+      const cell = s.cell
+      const votes = s.votes ?? []
       const targetId = cell?.target_user_id ?? null
       const targetVote = votes.find((v) => v.voter_user_id === targetId)
       if (targetVote) {
@@ -212,9 +258,9 @@ export default function Activity() {
     }
 
     // Derive notifications from approved proposals (I wrote)
-    const proposals = (proposalsRes.data ?? []) as any[]
+    const proposals = (proposalsRes.data ?? []) as unknown as ApprovedProposal[]
     for (const p of proposals) {
-      const target = p.target as { id: string; username: string } | null
+      const target = p.target
       const id = `challenge_approved_${p.id}`
       notifs.push({
         id,
@@ -234,9 +280,10 @@ export default function Activity() {
     setNotifications(notifs)
     setLoading(false)
 
-    // Mark all as read after 1.5s
-    setTimeout(() => {
-      const allIds = new Set([...seenIds, ...notifs.map((n) => n.id)])
+    // Mark all as read after 1.5s (debounced to avoid stale closures)
+    if (markReadTimerRef.current) clearTimeout(markReadTimerRef.current)
+    markReadTimerRef.current = setTimeout(() => {
+      const allIds = new Set([...readSeenIds(), ...notifs.map((n) => n.id)])
       saveSeenIds(allIds)
       try { localStorage.setItem('busted_unread_count', '0') } catch {}
       setNotifications((prev) => prev.map((n) => ({ ...n, isRead: true })))
@@ -245,13 +292,9 @@ export default function Activity() {
     subscribeRealtime()
   }
 
-  function showToast(msg: string) {
-    setToast(msg)
-    if (toastTimerRef.current) clearTimeout(toastTimerRef.current)
-    toastTimerRef.current = setTimeout(() => setToast(null), 3500)
-  }
-
   async function handleConfirm(cellId: string, submissionId: string, notifId: string) {
+    if (submittingRef.current) return
+    submittingRef.current = true
     setActionLoading(notifId)
     await supabase.from('cells').update({ status: 'busted' }).eq('id', cellId)
     await supabase.from('votes').insert({
@@ -261,10 +304,17 @@ export default function Activity() {
     })
     await loadNotifications()
     setActionLoading(null)
+    submittingRef.current = false
     showToast('Confirmé ! La case est validée 🎯')
   }
 
   async function handleDeny(cellId: string, submissionId: string, notifId: string) {
+    if (confirmingDenyId !== notifId) {
+      setConfirmingDenyId(notifId)
+      return
+    }
+    if (submittingRef.current) return
+    submittingRef.current = true
     setActionLoading(notifId)
     await supabase.from('cells').update({ status: 'rejected' }).eq('id', cellId)
     await supabase.from('votes').insert({
@@ -274,6 +324,8 @@ export default function Activity() {
     })
     await loadNotifications()
     setActionLoading(null)
+    submittingRef.current = false
+    setConfirmingDenyId(null)
     showToast('Preuve refusée.')
   }
 
@@ -310,7 +362,14 @@ export default function Activity() {
 
       {loading && <p style={styles.hint}>Chargement...</p>}
 
-      {!loading && notifications.length === 0 && (
+      {error && (
+        <div style={{ textAlign: 'center', marginTop: '2rem' }}>
+          <p style={{ color: 'var(--color-error)', fontSize: '0.875rem' }}>{error}</p>
+          <button onClick={loadNotifications} style={styles.retryBtn}>Réessayer</button>
+        </div>
+      )}
+
+      {!loading && !error && notifications.length === 0 && (
         <div style={styles.emptyState}>
           <p style={styles.emptyText}>Rien pour l'instant</p>
           <p style={styles.hint}>Reviens après la soirée 🎉</p>
@@ -364,11 +423,14 @@ export default function Activity() {
                       {actionLoading === notif.id ? '...' : 'Oui c\'est vrai 😅'}
                     </button>
                     <button
-                      style={styles.denyBtn}
+                      style={{
+                        ...styles.denyBtn,
+                        ...(confirmingDenyId === notif.id ? { borderColor: 'var(--color-error)', color: 'var(--color-error)' } : {}),
+                      }}
                       disabled={actionLoading === notif.id}
                       onClick={() => handleDeny(notif.cellId!, notif.submissionId!, notif.id)}
                     >
-                      Non c'est faux
+                      {confirmingDenyId === notif.id ? 'Confirmer le refus ?' : "Non c'est faux"}
                     </button>
                   </div>
                 )}
@@ -502,6 +564,19 @@ const styles: Record<string, React.CSSProperties> = {
     fontWeight: 600,
     fontSize: '0.8125rem',
     cursor: 'pointer',
+    minHeight: '36px',
+  },
+  retryBtn: {
+    background: 'var(--color-surface)',
+    color: 'var(--color-text-primary)',
+    border: '1px solid var(--color-border)',
+    borderRadius: '10px',
+    padding: '0.5rem 1.25rem',
+    fontFamily: 'var(--font-body)',
+    fontWeight: 700,
+    fontSize: '0.875rem',
+    cursor: 'pointer',
+    marginTop: '0.75rem',
     minHeight: '36px',
   },
   toast: {

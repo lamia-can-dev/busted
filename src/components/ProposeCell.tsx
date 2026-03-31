@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react'
-import { motion, AnimatePresence } from 'framer-motion'
+import { AnimatePresence } from 'framer-motion'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
-import { getUserColor } from '../lib/userColor'
 import type { User } from '../../supabase/types'
+import BottomSheet from './BottomSheet'
+import Avatar from './Avatar'
 
 interface Props {
   onClose: () => void
@@ -71,22 +72,7 @@ export default function ProposeCell({ onClose }: Props) {
 
   return (
     <AnimatePresence>
-      <motion.div
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        exit={{ opacity: 0 }}
-        onClick={onClose}
-        style={styles.backdrop}
-      >
-        <motion.div
-          initial={{ y: '100%' }}
-          animate={{ y: 0 }}
-          exit={{ y: '100%' }}
-          transition={{ type: 'spring', damping: 28, stiffness: 300 }}
-          onClick={(e) => e.stopPropagation()}
-          style={styles.sheet}
-        >
-          <div style={styles.handle} />
+      <BottomSheet onClose={onClose}>
           <h2 style={styles.title}>Proposer une case</h2>
 
           {success ? (
@@ -107,13 +93,7 @@ export default function ProposeCell({ onClose }: Props) {
                         ...(targetId === m.id ? styles.memberBtnActive : {}),
                       }}
                     >
-                      {m.avatar_url ? (
-                        <img src={m.avatar_url} style={styles.avatar} alt="" />
-                      ) : (
-                        <div style={{ ...styles.avatarFallback, background: getUserColor(m.id) }}>
-                          {m.username[0].toUpperCase()}
-                        </div>
-                      )}
+                      <Avatar src={m.avatar_url} name={m.username} userId={m.id} size={24} />
                       <span style={styles.memberName}>{m.username}</span>
                     </button>
                   ))}
@@ -149,37 +129,12 @@ export default function ProposeCell({ onClose }: Props) {
               </button>
             </form>
           )}
-        </motion.div>
-      </motion.div>
+      </BottomSheet>
     </AnimatePresence>
   )
 }
 
 const styles: Record<string, React.CSSProperties> = {
-  backdrop: {
-    position: 'fixed',
-    inset: 0,
-    background: 'rgba(0,0,0,0.6)',
-    zIndex: 200,
-    display: 'flex',
-    alignItems: 'flex-end',
-  },
-  sheet: {
-    background: 'var(--color-surface)',
-    borderRadius: '1.5rem 1.5rem 0 0',
-    padding: '1rem 1.5rem calc(2.5rem + env(safe-area-inset-bottom, 0px))',
-    width: '100%',
-    maxWidth: '560px',
-    margin: '0 auto',
-    boxShadow: '0 -4px 40px rgba(0,0,0,0.4)',
-  },
-  handle: {
-    width: '40px',
-    height: '4px',
-    background: 'var(--color-border)',
-    borderRadius: '2px',
-    margin: '0 auto 1.25rem',
-  },
   title: {
     color: 'var(--color-text-primary)',
     fontSize: '1.2rem',
@@ -223,23 +178,6 @@ const styles: Record<string, React.CSSProperties> = {
   memberBtnActive: {
     borderColor: 'var(--color-indigo)',
     background: 'var(--color-surface)',
-  },
-  avatar: {
-    width: '24px',
-    height: '24px',
-    borderRadius: '50%',
-    objectFit: 'cover',
-  },
-  avatarFallback: {
-    width: '24px',
-    height: '24px',
-    borderRadius: '50%',
-    color: '#fff',
-    fontSize: '0.75rem',
-    fontWeight: 700,
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
   },
   memberName: {
     color: 'var(--color-text-primary)',
